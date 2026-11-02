@@ -15,8 +15,9 @@ use tower::ServiceExt;
 use zylotek_api::{
     build_state,
     router::router,
-    woods::schemas::{WoodDetailsSchema, WoodResponse},
+    woods::mappers::{Convert, TryConvert},
 };
+use zylotek_contracts::woods::{WoodDetailsSchema, WoodResponse};
 use zylotek_domain::testing::{full_details, wood};
 use zylotek_infrastructure::{
     persistence::woods::repositories::PostgresWoodRepository, testing::memory_db,
@@ -25,7 +26,8 @@ use zylotek_infrastructure::{
 const SEEDED: usize = 200;
 
 fn body(name: &str, scientific_name: &str) -> Value {
-    let mut body = serde_json::to_value(WoodDetailsSchema::from(&full_details())).unwrap();
+    let details: WoodDetailsSchema = (&full_details()).convert();
+    let mut body = serde_json::to_value(details).unwrap();
     body["name"] = json!(name);
     body["scientific_name"] = json!(scientific_name);
     body
@@ -157,12 +159,12 @@ fn requests(c: &mut Criterion) {
 fn schemas(c: &mut Criterion) {
     let mut group = c.benchmark_group("schemas");
     let stored = wood("Aroeira", "Myracrodruon urundeuva");
-    let response = WoodResponse::from(&stored);
+    let response: WoodResponse = (&stored).convert();
     let json = serde_json::to_string(&response).unwrap();
 
     group.throughput(Throughput::Bytes(json.len() as u64));
     group.bench_function("domain_to_response", |b| {
-        b.iter(|| WoodResponse::from(black_box(&stored)))
+        b.iter(|| -> WoodResponse { black_box(&stored).convert() })
     });
     group.bench_function("serialize_response", |b| {
         b.iter(|| serde_json::to_string(black_box(&response)))
@@ -173,7 +175,9 @@ fn schemas(c: &mut Criterion) {
     group.bench_function("schema_to_domain", |b| {
         b.iter_batched(
             || serde_json::from_str::<WoodDetailsSchema>(&json).unwrap(),
-            zylotek_domain::woods::value_objects::WoodDetails::try_from,
+            |schema: WoodDetailsSchema| -> Result<zylotek_domain::woods::value_objects::WoodDetails, _> {
+                schema.try_convert()
+            },
             criterion::BatchSize::SmallInput,
         )
     });

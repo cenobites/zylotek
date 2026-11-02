@@ -19,6 +19,7 @@ serde_json = "1.0"
 tokio = { version = "1.53.2", features = ["rt", "macros"] }
 tower = { version = "0.5", features = ["util"] }
 zylotek-api = { path = "../crates/zylotek-api" }
+zylotek-contracts = { path = "../crates/zylotek-contracts" }
 zylotek-domain = { path = "../crates/zylotek-domain", features = ["testing"] }
 zylotek-sync = { path = "../crates/zylotek-sync" }
 

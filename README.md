@@ -116,4 +116,4 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how the code is organised.
 - The CSV has no workability data or images, so those fields stay empty for imported woods.
 - Migration `0001` adds `NOT NULL` columns without defaults; it applies to an empty
   `woods` table only.
-- `zylotek-contracts` and the root `src/main.rs` are placeholders.
+- The root `src/main.rs` is a placeholder.

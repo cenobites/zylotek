@@ -7,12 +7,13 @@ use zylotek_application::woods::{
     create_wood::CreateWoodCommand, errors::WoodUseCaseError, list_woods::ListWoodsQuery,
     update_wood::UpdateWoodCommand,
 };
+use zylotek_contracts::woods::{ListWoodsParams, WoodPageResponse, WoodRequest, WoodResponse};
 use zylotek_domain::woods::{entities::WoodId, errors::WoodError};
 
 use crate::{
     errors::ApiError,
     state::AppState,
-    woods::schemas::{ListWoodsParams, WoodPageResponse, WoodRequest, WoodResponse},
+    woods::mappers::{Convert, TryConvert},
 };
 
 pub async fn create_wood_handler(
@@ -22,12 +23,15 @@ pub async fn create_wood_handler(
     let command = CreateWoodCommand {
         name: request.name,
         scientific_name: request.scientific_name,
-        details: request.details.try_into().map_err(WoodUseCaseError::from)?,
+        details: request
+            .details
+            .try_convert()
+            .map_err(WoodUseCaseError::from)?,
     };
 
     let wood = state.woods.create_wood(command).await?;
 
-    Ok((StatusCode::CREATED, Json(WoodResponse::from(&wood))))
+    Ok((StatusCode::CREATED, Json((&wood).convert())))
 }
 
 pub async fn list_woods_handler(
@@ -41,7 +45,7 @@ pub async fn list_woods_handler(
 
     let page = state.woods.list_woods(query).await?;
 
-    Ok(Json(page.into()))
+    Ok(Json(page.convert()))
 }
 
 pub async fn get_wood_handler(
@@ -50,7 +54,7 @@ pub async fn get_wood_handler(
 ) -> Result<Json<WoodResponse>, ApiError> {
     let wood = state.woods.get_wood(parse_id(&id)?).await?;
 
-    Ok(Json(WoodResponse::from(&wood)))
+    Ok(Json((&wood).convert()))
 }
 
 pub async fn update_wood_handler(
@@ -62,12 +66,15 @@ pub async fn update_wood_handler(
         id: parse_id(&id)?,
         name: request.name,
         scientific_name: request.scientific_name,
-        details: request.details.try_into().map_err(WoodUseCaseError::from)?,
+        details: request
+            .details
+            .try_convert()
+            .map_err(WoodUseCaseError::from)?,
     };
 
     let wood = state.woods.update_wood(command).await?;
 
-    Ok(Json(WoodResponse::from(&wood)))
+    Ok(Json((&wood).convert()))
 }
 
 pub async fn delete_wood_handler(

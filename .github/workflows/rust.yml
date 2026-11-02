@@ -53,7 +53,7 @@ jobs:
     - name: Integration coverage gate (>= 80%)
       run: make cov-integration
     - name: Report
-      run: cargo llvm-cov --workspace --tests --lcov --output-path lcov.info --ignore-filename-regex '(testing|test_support)\.rs|/tests/|/benches/|crates/zylotek-contracts/|/src/main\.rs$'
+      run: cargo llvm-cov --workspace --tests --lcov --output-path lcov.info --ignore-filename-regex '(testing|test_support)\.rs|/tests/|/benches/|/src/main\.rs$'
     - uses: actions/upload-artifact@v4
       with:
         name: lcov

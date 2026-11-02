@@ -12,7 +12,8 @@ use axum::{
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
-use zylotek_api::{build_state, router::router, woods::schemas::WoodDetailsSchema};
+use zylotek_api::{build_state, router::router, woods::mappers::Convert};
+use zylotek_contracts::woods::WoodDetailsSchema;
 use zylotek_domain::testing::full_details;
 use zylotek_infrastructure::{
     persistence::woods::repositories::PostgresWoodRepository, testing::memory_db,
@@ -26,7 +27,8 @@ pub async fn app() -> Router {
 
 /// A `POST`/`PUT` body with every detail populated.
 pub fn wood_body(name: &str, scientific_name: &str) -> Value {
-    let mut body = serde_json::to_value(WoodDetailsSchema::from(&full_details())).unwrap();
+    let details: WoodDetailsSchema = (&full_details()).convert();
+    let mut body = serde_json::to_value(details).unwrap();
     body["name"] = json!(name);
     body["scientific_name"] = json!(scientific_name);
     body

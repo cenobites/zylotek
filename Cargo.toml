@@ -22,6 +22,7 @@ exclude = ["fuzz"]
 [workspace.dependencies]
 zylotek-domain = { path = "crates/zylotek-domain" }
 zylotek-cli = { path = "crates/zylotek-cli" }
+zylotek-contracts = { path = "crates/zylotek-contracts" }
 zylotek-api = { path = "crates/zylotek-api" }
 zylotek-sync = { path = "crates/zylotek-sync" }
 zylotek-application = { path = "crates/zylotek-application" }

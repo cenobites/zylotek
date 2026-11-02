@@ -3,7 +3,8 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use serde::Serialize;
+
+pub use zylotek_contracts::ErrorResponse;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
@@ -38,18 +39,12 @@ impl IntoResponse for ApiError {
         };
 
         let body = Json(ErrorResponse {
-            code,
+            code: code.to_owned(),
             message: self.to_string(),
         });
 
         (status, body).into_response()
     }
-}
-
-#[derive(Debug, Serialize)]
-pub struct ErrorResponse {
-    pub code: &'static str,
-    pub message: String,
 }
 
 #[cfg(test)]
@@ -116,15 +111,5 @@ mod tests {
 
         assert!(std::error::Error::source(&error).is_some());
         assert!(format!("{error:?}").contains("Internal"));
-        assert!(
-            format!(
-                "{:?}",
-                ErrorResponse {
-                    code: "X",
-                    message: "m".into()
-                }
-            )
-            .contains("code")
-        );
     }
 }

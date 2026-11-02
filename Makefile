@@ -46,7 +46,7 @@ migrate:
 #   server.rs, migrations.rs     process entry points (fixed port, OS signals, cwd);
 #                                measured by the integration gate instead
 #   zylotek-cli, main.rs         thin binaries, exercised through the compiled binary
-COMMON_IGNORE := (testing|test_support)\.rs|/tests/|/benches/|crates/zylotek-contracts/|/src/main\.rs$$
+COMMON_IGNORE := (testing|test_support)\.rs|/tests/|/benches/|/src/main\.rs$$
 UNIT_IGNORE := $(COMMON_IGNORE)|persistence/woods/models\.rs|/(server|migrations)\.rs|crates/zylotek-cli/
 INTEGRATION_IGNORE := $(COMMON_IGNORE)
 

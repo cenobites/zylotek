@@ -23,7 +23,9 @@ use zylotek_domain::{
 };
 use zylotek_infrastructure::{event_bus::EventPublisher, testing::RecordingEventPublisher};
 
-use crate::{router::router, state::AppState, woods::schemas::WoodDetailsSchema};
+use zylotek_contracts::woods::WoodDetailsSchema;
+
+use crate::{router::router, state::AppState, woods::mappers::Convert};
 
 pub(crate) struct TestApp {
     pub router: Router,
@@ -68,7 +70,8 @@ pub(crate) fn app_with(
 
 /// A `POST`/`PUT` body with every detail populated.
 pub(crate) fn wood_body(name: &str, scientific_name: &str) -> Value {
-    let mut body = serde_json::to_value(WoodDetailsSchema::from(&full_details())).unwrap();
+    let details: WoodDetailsSchema = (&full_details()).convert();
+    let mut body = serde_json::to_value(details).unwrap();
     body["name"] = json!(name);
     body["scientific_name"] = json!(scientific_name);
     body

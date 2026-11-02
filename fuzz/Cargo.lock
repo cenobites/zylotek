@@ -3465,6 +3465,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zylotek-application",
+ "zylotek-contracts",
  "zylotek-domain",
  "zylotek-infrastructure",
 ]
@@ -3479,6 +3480,13 @@ dependencies = [
  "thiserror",
  "zylotek-domain",
  "zylotek-infrastructure",
+]
+
+[[package]]
+name = "zylotek-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -3502,6 +3510,7 @@ dependencies = [
  "tokio",
  "tower",
  "zylotek-api",
+ "zylotek-contracts",
  "zylotek-domain",
  "zylotek-sync",
 ]

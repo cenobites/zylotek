@@ -93,9 +93,10 @@ Adapters for the domain's ports and for technical plumbing.
 ### `crates/zylotek-api`
 
 The axum HTTP binary and the **composition root**: `main.rs` is the only place where
-concrete types are chosen and wired together. `woods/schemas.rs` holds the JSON shapes
-(serde mirrors of the value objects, enums as snake_case) and the conversions to and
-from the domain. `woods/handlers.rs` holds `From<WoodUseCaseError> for ApiError`, where
+concrete types are chosen and wired together. `woods/mappers.rs` converts between the
+domain and the JSON shapes in `zylotek-contracts` through two local traits, `Convert` and
+`TryConvert` (the orphan rule rules out `From` between two foreign types).
+`woods/handlers.rs` holds `From<WoodUseCaseError> for ApiError`, where
 errors become status codes: `NotFound` → 404, invalid id → 400, other domain errors → 422,
 persistence/event failures → 500.
 
@@ -127,9 +128,18 @@ scraper and stores them with `ImportWoods`, so the CLI is a second composition r
 `zylotek-api`. The global `--database-url` (env `ZYLOTEK_DATABASE_URL`) picks the database
 for `sync` and `api`.
 
-### `crates/zylotek-contracts`, root `src/main.rs`
+### `crates/zylotek-contracts`
 
-Empty placeholders. `zylotek-contracts` is intended for shared API contracts.
+The API's wire format as plain serde types (`WoodRequest`, `WoodResponse`,
+`WoodPageResponse`, `ErrorResponse`, the `*Schema` structs and the snake_case rating
+enums). It depends on `serde` alone, so the server and every client — the web app and the
+assistant — share one definition and a rename breaks their builds instead of drifting
+silently. It knows nothing of the domain; converting is the API's job (`mappers.rs`).
+Unknown fields are ignored on read, so the server can add fields without breaking clients.
+
+### Root `src/main.rs`
+
+An empty placeholder.
 
 ### `toasty/`, `Toasty.toml`
 
