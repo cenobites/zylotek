@@ -16,6 +16,7 @@ members = [
     "crates/zylotek-api",
     "crates/zylotek-contracts",
     "crates/zylotek-assistant",
+    "crates/zylotek-webapp",
 ]
 # cargo-fuzz targets need nightly and libFuzzer; they live in their own workspace.
 exclude = ["fuzz"]
@@ -26,6 +27,7 @@ zylotek-cli = { path = "crates/zylotek-cli" }
 zylotek-contracts = { path = "crates/zylotek-contracts" }
 zylotek-api = { path = "crates/zylotek-api" }
 zylotek-assistant = { path = "crates/zylotek-assistant" }
+zylotek-webapp = { path = "crates/zylotek-webapp" }
 zylotek-sync = { path = "crates/zylotek-sync" }
 zylotek-application = { path = "crates/zylotek-application" }
 zylotek-infrastructure = { path = "crates/zylotek-infrastructure" }
@@ -67,6 +69,8 @@ ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "pem", "rand_core"] }
 base64 = "0.23.1"
 getrandom = { version = "0.4.3", features = ["sys_rng"] }
 percent-encoding = "2.3"
+askama = "0.16.1"
+form_urlencoded = "1.2"
 
 
 # Test-only dependencies.

@@ -19,6 +19,7 @@ serde_json = "1.0"
 tokio = { version = "1.53.2", features = ["rt", "macros"] }
 tower = { version = "0.5", features = ["util"] }
 zylotek-assistant = { path = "../crates/zylotek-assistant" }
+zylotek-webapp = { path = "../crates/zylotek-webapp" }
 zylotek-api = { path = "../crates/zylotek-api", features = ["testing"] }
 zylotek-contracts = { path = "../crates/zylotek-contracts" }
 zylotek-domain = { path = "../crates/zylotek-domain", features = ["testing"] }
@@ -69,6 +70,13 @@ bench = false
 [[bin]]
 name = "model_reply"
 path = "fuzz_targets/model_reply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webapp_input"
+path = "fuzz_targets/webapp_input.rs"
 test = false
 doc = false
 bench = false

@@ -81,7 +81,7 @@ jobs:
     # parse_wood is expected to crash until the scraper's unwraps are removed (see
     # TESTING.md, "Known bugs"), so it is reported but does not fail the build.
     - name: Fuzz the stable targets
-      run: make fuzz FUZZ_TIME=30 FUZZ_TARGETS="parse_open_data wood_request_json value_objects http_requests oauth_requests model_reply"
+      run: make fuzz FUZZ_TIME=30 FUZZ_TARGETS="parse_open_data wood_request_json value_objects http_requests oauth_requests model_reply webapp_input"
     - name: Fuzz the scraper
       continue-on-error: true
       run: make fuzz FUZZ_TIME=30 FUZZ_TARGETS="parse_wood"

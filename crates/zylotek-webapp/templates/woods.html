@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Browse woods{% endblock %}
+{% block content %}
+<h1>Brazilian woods</h1>
+<p class="muted">Showing {{ first }}–{{ last }} of {{ total }}. Tick two to four woods to compare them.</p>
+<form method="get" action="/compare">
+<div class="scroll"><table>
+<thead><tr><th></th><th>Name</th><th>Scientific name</th><th>Family</th><th>Hardness</th><th>Density</th></tr></thead>
+<tbody>
+{% for row in rows %}
+<tr><td><input type="checkbox" name="id" value="{{ row.id }}" aria-label="Compare {{ row.name }}"></td>
+<td><a href="/woods/{{ row.id }}">{{ row.name }}</a></td><td><em>{{ row.scientific_name }}</em></td><td>{{ row.family }}</td><td>{{ row.hardness }}</td><td>{{ row.density }}</td></tr>
+{% endfor %}
+</tbody></table></div>
+<p><button type="submit">Compare selected</button></p>
+</form>
+<div class="pager">
+<span>{% if let Some(offset) = previous %}<a href="/woods?offset={{ offset }}">← Previous</a>{% endif %}</span>
+<span>{% if let Some(offset) = next %}<a href="/woods?offset={{ offset }}">Next →</a>{% endif %}</span>
+</div>
+{% endblock %}

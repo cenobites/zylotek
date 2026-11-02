@@ -12,7 +12,8 @@ Zylotek collects data about Brazilian wood species and serves it. There are two 
 1. **Ingest.** `zylotek-sync` turns the LPF data into domain value objects (`ScrapedWood`),
    either by parsing the open-data CSV (the default) or by fetching the catalogue pages over
    HTTP. The CLI then stores them through the `ImportWoods` use case.
-2. **Serve.** `zylotek-api` exposes CRUD on `/api/v1/woods`. Requests are validated by the
+2. **Serve.** `zylotek-webapp` shows it to visitors, with `zylotek-assistant` answering
+   questions; `zylotek-api` exposes CRUD on `/api/v1/woods`. Requests are validated by the
    domain's value objects, stored through Toasty (SQLite), and every change emits a
    `WoodEvent` that an asynchronous handler consumes.
 
@@ -168,6 +169,18 @@ protocol of llama.cpp's `llama-server` (also vLLM, Ollama, LM Studio). `http.rs`
 `GET /health` and `POST /v1/ask`, the latter behind an optional shared bearer token.
 `server.rs` wires it up and is outside the unit gate. The request and response types live in
 `zylotek-contracts::assistant` for the web app.
+
+### `crates/zylotek-webapp`
+
+The website, on its own port (3000). Pages are rendered on the server with Askama templates
+(`templates/`) and need no script: the question is a plain form POST, the comparison a plain
+GET with repeated `id` parameters. It reads the catalogue from `zylotek-api` and asks
+`zylotek-assistant` for recommendations through `clients.rs`, both using the contract types, so
+it never touches the database or the model. `view.rs` turns contract types into display
+strings (templates hold no logic), `pages.rs` has the routes. A backend failure becomes a
+friendly error page; the technical detail goes to the log only. Askama escapes every value,
+including the model's text, and a header middleware sets a CSP that forbids scripts. Wood ids
+are checked before they reach a URL, and image and source links must be `http(s)`.
 
 ### Root `src/main.rs`
 

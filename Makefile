@@ -96,7 +96,7 @@ bench-check:
 # Fuzzing (cargo-fuzz, nightly)
 # =============================================================================
 
-FUZZ_TARGETS := parse_wood parse_open_data wood_request_json value_objects http_requests oauth_requests model_reply
+FUZZ_TARGETS := parse_wood parse_open_data wood_request_json value_objects http_requests oauth_requests model_reply webapp_input
 FUZZ_TIME ?= 60
 
 fuzz-build:

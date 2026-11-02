@@ -1,0 +1,439 @@
+//! Turns contract types into display-ready strings, so templates stay free of logic.
+
+use zylotek_contracts::{
+    assistant::{Property, Recommendation},
+    woods::{WoodResponse, WorkabilityRating},
+};
+
+const MISSING: &str = "—";
+
+pub struct Fact {
+    pub label: &'static str,
+    pub value: String,
+}
+
+pub struct Pair {
+    pub key: String,
+    pub value: String,
+}
+
+fn number(value: Option<f64>, decimals: usize, unit: &str) -> String {
+    match value.filter(|v| v.is_finite()) {
+        Some(value) => format!("{value:.decimals$} {unit}").trim_end().to_owned(),
+        None => MISSING.to_owned(),
+    }
+}
+
+/// The figures people compare woods on. Dry-wood values first, green as a fallback, the
+/// same preference the assistant ranks by.
+pub fn facts(wood: &WoodResponse) -> Vec<Fact> {
+    let details = &wood.details;
+    let mechanical = &details.mechanical_properties;
+    let dry_or_green = |dry: Option<f64>, green: Option<f64>| dry.or(green);
+    let density = &details.physical_properties.density;
+    let surface = &details.workabilities.surface_finishing;
+    let ratings: Vec<f64> = [
+        surface.planer,
+        surface.sandpaper,
+        surface.vise,
+        surface.drill,
+    ]
+    .into_iter()
+    .filter_map(rating)
+    .collect();
+    let workability =
+        (!ratings.is_empty()).then(|| ratings.iter().sum::<f64>() / ratings.len() as f64 * 100.0);
+
+    vec![
+        Fact {
+            label: "Family",
+            value: details.family.clone().unwrap_or_else(|| MISSING.to_owned()),
+        },
+        Fact {
+            label: "Density (apparent)",
+            value: number(
+                density.apparent.or(density.dry).or(density.basic),
+                2,
+                "g/cm³",
+            ),
+        },
+        Fact {
+            label: "Volumetric shrinkage",
+            value: number(details.physical_properties.shrinkage.volumetric, 1, "%"),
+        },
+        Fact {
+            label: "Janka hardness",
+            value: number(
+                dry_or_green(
+                    mechanical.dry.janka_hardness.parallel_to_grain,
+                    mechanical.green.janka_hardness.parallel_to_grain,
+                ),
+                0,
+                "kgf",
+            ),
+        },
+        Fact {
+            label: "Bending strength",
+            value: number(
+                dry_or_green(
+                    mechanical.dry.static_bending.modulus_of_rupture,
+                    mechanical.green.static_bending.modulus_of_rupture,
+                ),
+                0,
+                "kgf/cm²",
+            ),
+        },
+        Fact {
+            label: "Stiffness (MOE)",
+            value: number(
+                dry_or_green(
+                    mechanical.dry.static_bending.modulus_of_elasticity,
+                    mechanical.green.static_bending.modulus_of_elasticity,
+                ),
+                0,
+                "kgf/cm²",
+            ),
+        },
+        Fact {
+            label: "Ease of working",
+            value: number(workability, 0, "%"),
+        },
+    ]
+}
+
+fn rating(rating: WorkabilityRating) -> Option<f64> {
+    let step = match rating {
+        WorkabilityRating::NotApplicable => return None,
+        WorkabilityRating::VeryPoor => 0.0,
+        WorkabilityRating::Poor => 1.0,
+        WorkabilityRating::Fair => 2.0,
+        WorkabilityRating::Easy => 3.0,
+        WorkabilityRating::Good => 4.0,
+        WorkabilityRating::VeryGood => 5.0,
+        WorkabilityRating::Excellent => 6.0,
+    };
+
+    Some(step / 6.0)
+}
+
+pub struct WoodRow {
+    pub id: String,
+    pub name: String,
+    pub scientific_name: String,
+    pub family: String,
+    pub hardness: String,
+    pub density: String,
+}
+
+pub fn row(wood: &WoodResponse) -> WoodRow {
+    let facts = facts(wood);
+    let value = |label: &str| {
+        facts
+            .iter()
+            .find(|fact| fact.label == label)
+            .map_or_else(|| MISSING.to_owned(), |fact| fact.value.clone())
+    };
+
+    WoodRow {
+        id: wood.id.clone(),
+        name: wood.name.clone(),
+        scientific_name: wood.scientific_name.clone(),
+        family: value("Family"),
+        hardness: value("Janka hardness"),
+        density: value("Density (apparent)"),
+    }
+}
+
+pub struct WoodView {
+    pub id: String,
+    pub name: String,
+    pub scientific_name: String,
+    pub common_names: String,
+    pub location: Option<String>,
+    pub image: Option<String>,
+    pub source_url: Option<String>,
+    pub facts: Vec<Fact>,
+    pub tree: Vec<Pair>,
+    pub characteristics: Vec<Pair>,
+    pub end_uses: Option<String>,
+    pub preservation: Option<String>,
+    pub workability_notes: Option<String>,
+}
+
+/// Only web addresses become links or images: the data comes from a scraped site.
+fn web_url(url: &Option<String>) -> Option<String> {
+    url.as_ref()
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+        .cloned()
+}
+
+fn pairs(map: &std::collections::BTreeMap<String, String>) -> Vec<Pair> {
+    map.iter()
+        .map(|(key, value)| Pair {
+            key: key.clone(),
+            value: value.clone(),
+        })
+        .collect()
+}
+
+pub fn detail(wood: &WoodResponse) -> WoodView {
+    let details = &wood.details;
+    let description = &details.description;
+
+    WoodView {
+        id: wood.id.clone(),
+        name: wood.name.clone(),
+        scientific_name: wood.scientific_name.clone(),
+        common_names: details.common_names.join(", "),
+        location: details.collection_location.clone(),
+        image: web_url(&details.images.main),
+        source_url: web_url(
+            &details
+                .source
+                .as_ref()
+                .map(|source| source.page_url.clone()),
+        ),
+        facts: facts(wood),
+        tree: pairs(&description.tree),
+        characteristics: pairs(&description.general_characteristics),
+        end_uses: description.end_uses.clone(),
+        preservation: description.preservation.clone(),
+        workability_notes: description.workability_notes.clone(),
+    }
+}
+
+pub struct ReasonView {
+    pub label: &'static str,
+    pub value: String,
+    /// "better than 85% of the woods in the database".
+    pub percent: u32,
+}
+
+pub struct CardView {
+    pub id: String,
+    pub name: String,
+    pub scientific_name: String,
+    pub percent: u32,
+    pub reasons: Vec<ReasonView>,
+}
+
+pub fn label(property: Property) -> &'static str {
+    match property {
+        Property::Hardness => "Hardness",
+        Property::Strength => "Bending strength",
+        Property::Stiffness => "Stiffness",
+        Property::Stability => "Dimensional stability",
+        Property::Lightness => "Light weight",
+        Property::Workability => "Ease of working",
+    }
+}
+
+fn reading(property: Property, value: f64) -> String {
+    match property {
+        Property::Hardness => format!("{value:.0} kgf"),
+        Property::Strength | Property::Stiffness => format!("{value:.0} kgf/cm²"),
+        Property::Stability => format!("{value:.1}% shrinkage"),
+        Property::Lightness => format!("{value:.2} g/cm³"),
+        Property::Workability => format!("{:.0}% ease", value * 100.0),
+    }
+}
+
+fn percent(fraction: f64) -> u32 {
+    (fraction.clamp(0.0, 1.0) * 100.0).round() as u32
+}
+
+pub fn card(recommendation: &Recommendation) -> CardView {
+    CardView {
+        id: recommendation.wood_id.clone(),
+        name: recommendation.name.clone(),
+        scientific_name: recommendation.scientific_name.clone(),
+        percent: percent(recommendation.score),
+        reasons: recommendation
+            .reasons
+            .iter()
+            .map(|reason| ReasonView {
+                label: label(reason.property),
+                value: reading(reason.property, reason.value),
+                percent: percent(reason.fit),
+            })
+            .collect(),
+    }
+}
+
+#[cfg(test)]
+pub mod testing {
+    use zylotek_contracts::woods::WoodDetailsSchema;
+
+    use super::*;
+
+    pub fn wood(id: &str, name: &str) -> WoodResponse {
+        WoodResponse {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            scientific_name: format!("{name} scientificus"),
+            genus: name.to_owned(),
+            details: WoodDetailsSchema::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use zylotek_contracts::assistant::Reason;
+
+    use super::{testing::wood, *};
+
+    fn value<'a>(facts: &'a [Fact], label: &str) -> &'a str {
+        &facts.iter().find(|f| f.label == label).unwrap().value
+    }
+
+    #[test]
+    fn a_wood_with_nothing_known_shows_dashes() {
+        let facts = facts(&wood("1", "Bare"));
+
+        assert_eq!(facts.len(), 7);
+        assert!(facts.iter().all(|fact| fact.value == "—"));
+    }
+
+    #[test]
+    fn known_figures_are_formatted_with_their_units() {
+        let mut w = wood("1", "Full");
+        w.details.family = Some("Meliaceae".into());
+        w.details.physical_properties.density.dry = Some(0.5);
+        w.details.physical_properties.shrinkage.volumetric = Some(12.34);
+        w.details
+            .mechanical_properties
+            .green
+            .janka_hardness
+            .parallel_to_grain = Some(612.4);
+        w.details
+            .mechanical_properties
+            .dry
+            .static_bending
+            .modulus_of_rupture = Some(930.0);
+        w.details
+            .mechanical_properties
+            .dry
+            .static_bending
+            .modulus_of_elasticity = Some(f64::NAN);
+        w.details.workabilities.surface_finishing.planer = WorkabilityRating::Excellent;
+        w.details.workabilities.surface_finishing.vise = WorkabilityRating::Fair;
+        w.details.workabilities.surface_finishing.drill = WorkabilityRating::NotApplicable;
+
+        let facts = facts(&w);
+
+        assert_eq!(value(&facts, "Family"), "Meliaceae");
+        assert_eq!(value(&facts, "Density (apparent)"), "0.50 g/cm³");
+        assert_eq!(value(&facts, "Volumetric shrinkage"), "12.3 %");
+        assert_eq!(value(&facts, "Janka hardness"), "612 kgf");
+        assert_eq!(value(&facts, "Bending strength"), "930 kgf/cm²");
+        assert_eq!(value(&facts, "Stiffness (MOE)"), "—", "NaN is not shown");
+        assert_eq!(value(&facts, "Ease of working"), "67 %");
+    }
+
+    #[test]
+    fn every_rating_step_maps_onto_zero_to_one() {
+        let steps: Vec<_> = [
+            WorkabilityRating::VeryPoor,
+            WorkabilityRating::Poor,
+            WorkabilityRating::Fair,
+            WorkabilityRating::Easy,
+            WorkabilityRating::Good,
+            WorkabilityRating::VeryGood,
+            WorkabilityRating::Excellent,
+        ]
+        .into_iter()
+        .map(|r| rating(r).unwrap())
+        .collect();
+
+        assert_eq!(steps[0], 0.0);
+        assert_eq!(steps[6], 1.0);
+        assert!(steps.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(rating(WorkabilityRating::NotApplicable), None);
+    }
+
+    #[test]
+    fn a_table_row_picks_the_columns_a_list_shows() {
+        let mut w = wood("7", "Ipê");
+        w.details
+            .mechanical_properties
+            .dry
+            .janka_hardness
+            .parallel_to_grain = Some(1800.0);
+
+        let row = row(&w);
+
+        assert_eq!((row.id.as_str(), row.name.as_str()), ("7", "Ipê"));
+        assert_eq!(row.hardness, "1800 kgf");
+        assert_eq!((row.family.as_str(), row.density.as_str()), ("—", "—"));
+    }
+
+    #[test]
+    fn the_detail_view_keeps_only_web_links() {
+        let mut w = wood("1", "Cedro");
+        w.details.common_names = vec!["Cedro-rosa".into(), "Cedro-vermelho".into()];
+        w.details.images.main = Some("javascript:alert(1)".into());
+        w.details.source = Some(zylotek_contracts::woods::SourceSchema {
+            species_id: 3,
+            page_url: "https://lpf.florestal.gov.br/x".into(),
+        });
+        w.details
+            .description
+            .tree
+            .insert("Altura".into(), "30 m".into());
+        w.details.description.end_uses = Some("Móveis".into());
+
+        let view = detail(&w);
+
+        assert_eq!(view.common_names, "Cedro-rosa, Cedro-vermelho");
+        assert_eq!(view.image, None, "a javascript: URL is dropped");
+        assert_eq!(
+            view.source_url.as_deref(),
+            Some("https://lpf.florestal.gov.br/x")
+        );
+        assert_eq!(view.tree[0].key, "Altura");
+        assert_eq!(view.end_uses.as_deref(), Some("Móveis"));
+        w.details.images.main = Some("http://example.org/a.jpg".into());
+        assert_eq!(
+            detail(&w).image.as_deref(),
+            Some("http://example.org/a.jpg")
+        );
+    }
+
+    #[test]
+    fn a_recommendation_becomes_percentages_and_readable_figures() {
+        let recommendation = Recommendation {
+            wood_id: "1".into(),
+            name: "Cedro".into(),
+            scientific_name: "Cedrela".into(),
+            score: 0.8449,
+            reasons: Property::ALL
+                .into_iter()
+                .map(|property| Reason {
+                    property,
+                    value: 0.5,
+                    fit: 1.7,
+                })
+                .collect(),
+        };
+
+        let card = card(&recommendation);
+
+        assert_eq!(card.percent, 84);
+        let readings: Vec<_> = card.reasons.iter().map(|r| r.value.as_str()).collect();
+        assert_eq!(
+            readings,
+            [
+                "0 kgf",
+                "0 kgf/cm²",
+                "0 kgf/cm²",
+                "0.5% shrinkage",
+                "0.50 g/cm³",
+                "50% ease"
+            ]
+        );
+        assert!(card.reasons.iter().all(|r| r.percent == 100), "clamped");
+        assert_eq!(label(Property::Stability), "Dimensional stability");
+        assert_eq!(percent(-1.0), 0);
+    }
+}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Your woods{% endblock %}
+{% block content %}
+<h1>Woods for your project</h1>
+<p class="muted">“{{ question }}”</p>
+{% if !summary.is_empty() %}<p>We understood: <strong>{{ summary }}</strong></p>{% endif %}
+<p class="chips">What we looked at:
+{% for (label, weight) in criteria %}<span>{{ label }}{% if *weight == 3 %} · essential{% else if *weight == 2 %} · important{% endif %}</span>{% endfor %}
+</p>
+{% if let Some(text) = explanation %}<div class="card">{{ text }}</div>{% endif %}
+{% if cards.is_empty() %}
+<p>No wood in the database has the figures needed for this question.</p>
+{% else %}
+<form method="get" action="/compare">
+{% for card in cards %}
+<div class="card">
+<label>{% if can_compare %}<input type="checkbox" name="id" value="{{ card.id }}"> {% endif %}<strong>{{ card.name }}</strong></label>
+<em class="muted">{{ card.scientific_name }}</em> — match <strong>{{ card.percent }}%</strong>
+<div class="bar"><i style="width:{{ card.percent }}%"></i></div>
+<ul>
+{% for reason in card.reasons %}<li>{{ reason.label }}: {{ reason.value }} <span class="muted">(better than {{ reason.percent }}% of woods)</span></li>{% endfor %}
+</ul>
+<a href="/woods/{{ card.id }}">Full details</a>
+</div>
+{% endfor %}
+{% if can_compare %}<p><button type="submit">Compare selected (2 to 4)</button></p>{% endif %}
+</form>
+{% endif %}
+<p class="muted">Ranked among {{ catalogue_size }} woods.</p>
+<p><a href="/">Ask another question</a></p>
+{% endblock %}

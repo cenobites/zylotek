@@ -152,6 +152,23 @@ Every option has an environment variable (`ZYLOTEK_API_URL`, `ZYLOTEK_MODEL_URL`
 `ZYLOTEK_ASSISTANT_LISTEN`, `ZYLOTEK_ASSISTANT_REFRESH_SECS`). `GET /health` reports how many
 woods are loaded. It starts without the API and fills in once the API is reachable.
 
+### Website
+
+`zylotek-webapp` is the site visitors use: ask in plain words which wood suits a project,
+browse the catalogue, open a wood, and compare two to four side by side. It needs the API and
+the assistant running:
+
+```bash
+cargo run -p zylotek-cli -- api run                     # :8080
+cargo run -p zylotek-assistant -- --model-url http://gpu-box:8081   # :8090
+cargo run -p zylotek-webapp -- --assistant-token "$TOKEN"           # :3000
+```
+
+Options and environment variables: `--api-url` (`ZYLOTEK_API_URL`), `--assistant-url`
+(`ZYLOTEK_ASSISTANT_URL`), `--assistant-token` (`ZYLOTEK_ASSISTANT_TOKEN`), `--listen`
+(`ZYLOTEK_WEBAPP_LISTEN`, default `127.0.0.1:3000`). Browsing works even when the assistant is
+down, and asking works only when it is up.
+
 ## Development
 
 ```bash
@@ -177,6 +194,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how the code is organised.
 | `Toasty.toml` | Migration configuration                                           |
 
 ## Current limitations
+
+- The website has no accounts, search box or streaming of the assistant's answer: asking takes
+  as long as the model needs (seconds on a GPU) and the page appears when it is ready. It is
+  plain HTTP; put TLS in front before exposing it.
 
 - The assistant ranks on six properties computed from the catalogue; it does not read the
   free-text descriptions (natural durability, end uses), and the answer is not streamed.
