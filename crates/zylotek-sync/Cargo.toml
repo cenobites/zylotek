@@ -11,3 +11,13 @@ tokio = { workspace = true }
 reqwest = { workspace = true }
 scraper = { workspace = true }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+insta = { workspace = true }
+proptest = { workspace = true }
+wiremock = { workspace = true }
+
+[[bench]]
+name = "parsers"
+harness = false

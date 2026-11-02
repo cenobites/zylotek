@@ -103,3 +103,48 @@ pub enum TreatabilityRating {
     Easy,
     VeryEasy,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ratings_default_to_not_applicable() {
+        let workabilities = Workabilities::default();
+
+        assert_eq!(
+            workabilities.surface_finishing.planer,
+            WorkabilityRating::NotApplicable
+        );
+        assert_eq!(
+            workabilities.surface_finishing.nail_crack,
+            NailCrackBehavior::NotApplicable
+        );
+        assert_eq!(
+            workabilities.treatabilities.heartwood,
+            TreatabilityRating::NotApplicable
+        );
+
+        let result = EquipmentFinishingResult::default();
+        assert_eq!(result.number_of_samples, None);
+        assert_eq!(result.defect, WorkabilityDefect::NotApplicable);
+        assert_eq!(
+            result.equipment_settings,
+            WorkabilityEquipmentSettings::NotApplicable
+        );
+        assert_eq!(
+            workabilities.equipment_finishing,
+            EquipmentFinishing::default()
+        );
+        assert_eq!(workabilities.surface_finishing, SurfaceFinishing::default());
+        assert_eq!(workabilities.treatabilities, Treatabilities::default());
+    }
+
+    #[test]
+    fn workabilities_are_cloneable_and_debuggable() {
+        let workabilities = Workabilities::default();
+
+        assert_eq!(workabilities.clone(), workabilities);
+        assert!(format!("{workabilities:?}").contains("NotApplicable"));
+    }
+}

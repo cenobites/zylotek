@@ -1,0 +1,147 @@
+---
+source: crates/zylotek-api/tests/woods_api.rs
+expression: created
+---
+{
+  "collection_location": "Pará",
+  "common_names": [
+    "Aroeira",
+    "Gonçalo-alves"
+  ],
+  "description": {
+    "end_uses": "Construção civil",
+    "general_characteristics": {
+      "cor": "castanho",
+      "grã": "irregular"
+    },
+    "heartwood_color_classification": "castanho",
+    "preservation": "Alta durabilidade natural",
+    "tree": {
+      "altura": "30 m",
+      "diâmetro": "80 cm"
+    },
+    "workability_notes": "Fácil de trabalhar"
+  },
+  "family": "Anacardiaceae",
+  "genus": "Myracrodruon",
+  "id": "[id]",
+  "images": {
+    "bark": "https://lpf.florestal.gov.br/images/bark.jpg",
+    "cross_section": "https://lpf.florestal.gov.br/images/cross.jpg",
+    "log": "https://lpf.florestal.gov.br/images/log.jpg",
+    "main": "https://lpf.florestal.gov.br/images/main.jpg",
+    "radial_cut": "https://lpf.florestal.gov.br/images/radial.jpg",
+    "tangential_cut": "https://lpf.florestal.gov.br/images/tangential.jpg",
+    "tree": "https://lpf.florestal.gov.br/images/tree.jpg",
+    "wood": "https://lpf.florestal.gov.br/images/wood.jpg"
+  },
+  "kiln_drying": {
+    "duration_days": 12.0,
+    "schedule": {
+      "temperatura inicial": "40 °C"
+    }
+  },
+  "mechanical_properties": {
+    "dry": {
+      "cleavage_strength": 87.5,
+      "compression": {
+        "parallel_to_grain": 625.0,
+        "perpendicular_to_grain": 112.5
+      },
+      "janka_hardness": {
+        "end_grain": 1000.0,
+        "parallel_to_grain": 875.0
+      },
+      "nail_extraction": {
+        "end_grain": 150.0,
+        "parallel_to_grain": 187.5
+      },
+      "shear_parallel_to_grain": 137.5,
+      "static_bending": {
+        "modulus_of_elasticity": 150000.0,
+        "modulus_of_rupture": 1250.0
+      },
+      "tension_perpendicular_to_grain": 75.0
+    },
+    "green": {
+      "cleavage_strength": 70.0,
+      "compression": {
+        "parallel_to_grain": 500.0,
+        "perpendicular_to_grain": 90.0
+      },
+      "janka_hardness": {
+        "end_grain": 800.0,
+        "parallel_to_grain": 700.0
+      },
+      "nail_extraction": {
+        "end_grain": 120.0,
+        "parallel_to_grain": 150.0
+      },
+      "shear_parallel_to_grain": 110.0,
+      "static_bending": {
+        "modulus_of_elasticity": 120000.0,
+        "modulus_of_rupture": 1000.0
+      },
+      "tension_perpendicular_to_grain": 60.0
+    }
+  },
+  "name": "Aroeira",
+  "physical_properties": {
+    "density": {
+      "apparent": 0.95,
+      "basic": 0.8,
+      "dry": 0.9,
+      "green": 1.1
+    },
+    "shrinkage": {
+      "radial": 5.0,
+      "tangential": 7.5,
+      "tangential_radial_ratio": 1.5,
+      "volumetric": 12.5
+    }
+  },
+  "scientific_name": "Myracrodruon urundeuva",
+  "source": {
+    "page_url": "https://lpf.florestal.gov.br/pt-br/component/madeirasbrasileiras/?especieestudadaid=42",
+    "species_id": 42
+  },
+  "workabilities": {
+    "equipment_finishing": {
+      "drill_bit": {
+        "defect": "lifted_and_ripped_off",
+        "equipment_settings": "not_applicable",
+        "number_of_samples": 13,
+        "surface_finish": "very_poor"
+      },
+      "lathe": {
+        "defect": "crushed_and_ripped_off",
+        "equipment_settings": "suitable",
+        "number_of_samples": 12,
+        "surface_finish": "fair"
+      },
+      "molding_planer": {
+        "defect": "flawless",
+        "equipment_settings": "suitable",
+        "number_of_samples": 10,
+        "surface_finish": "good"
+      },
+      "narrow_belt_sander": {
+        "defect": "fluffy",
+        "equipment_settings": "not_suitable",
+        "number_of_samples": 11,
+        "surface_finish": "excellent"
+      }
+    },
+    "surface_finishing": {
+      "drill": "good",
+      "nail_crack": "does_not_crack_except_corners",
+      "planer": "very_good",
+      "sandpaper": "easy",
+      "vise": "poor"
+    },
+    "treatabilities": {
+      "heartwood": "moderately_hard",
+      "sapwood": "very_easy"
+    }
+  }
+}

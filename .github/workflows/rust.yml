@@ -10,13 +10,70 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  lint:
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+    - uses: Swatinem/rust-cache@v2
+    - run: cargo fmt --all -- --check
+    - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+    - name: Unit tests
+      run: make test-unit
+    - name: Integration tests
+      run: make test-integration
+    - name: Doc tests
+      run: cargo test --workspace --doc
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+    - uses: taiki-e/install-action@cargo-llvm-cov
+    - name: Unit coverage gate
+      run: make cov-unit
+    - name: Integration coverage gate (>= 80%)
+      run: make cov-integration
+    - name: Report
+      run: cargo llvm-cov --workspace --tests --lcov --output-path lcov.info --ignore-filename-regex '(testing|test_support)\.rs|/tests/|/benches/|crates/zylotek-contracts/|/src/main\.rs$'
+    - uses: actions/upload-artifact@v4
+      with:
+        name: lcov
+        path: lcov.info
+
+  # Benchmarks are only run once here, to keep them compiling and working. Timings on shared
+  # runners are too noisy to gate on; run `make bench` locally to compare.
+  bench-smoke:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+    - run: make bench-check
+
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@nightly
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: fuzz
+    - run: cargo install cargo-fuzz --locked
+    # parse_wood is expected to crash until the scraper's unwraps are removed (see
+    # TESTING.md, "Known bugs"), so it is reported but does not fail the build.
+    - name: Fuzz the stable targets
+      run: make fuzz FUZZ_TIME=30 FUZZ_TARGETS="wood_request_json value_objects http_requests"
+    - name: Fuzz the scraper
+      continue-on-error: true
+      run: make fuzz FUZZ_TIME=30 FUZZ_TARGETS="parse_wood"
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: fuzz-artifacts
+        path: fuzz/artifacts

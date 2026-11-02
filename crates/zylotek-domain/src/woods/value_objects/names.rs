@@ -112,3 +112,99 @@ impl CommonNames {
         self.0.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    #[test]
+    fn text_value_objects_collapse_whitespace() {
+        assert_eq!(
+            WoodName::new("  Muiracatiara \t rajada ").unwrap().as_str(),
+            "Muiracatiara rajada"
+        );
+        assert_eq!(
+            BotanicalFamily::new(" Anacardiaceae\n")
+                .unwrap()
+                .to_string(),
+            "Anacardiaceae"
+        );
+    }
+
+    #[test]
+    fn text_value_objects_reject_blank_values() {
+        for (error, field) in [
+            (WoodName::new(" \t").unwrap_err(), "name"),
+            (ScientificName::new("").unwrap_err(), "scientific name"),
+            (BotanicalFamily::new("\n").unwrap_err(), "family"),
+        ] {
+            assert!(matches!(error, WoodError::EmptyText { field: f } if f == field));
+            assert_eq!(error.to_string(), format!("{field} must not be empty"));
+        }
+    }
+
+    #[test]
+    fn scientific_name_needs_a_genus_and_an_epithet() {
+        let error = ScientificName::new("Astronium").unwrap_err();
+
+        assert!(matches!(&error, WoodError::InvalidScientificName(value) if value == "Astronium"));
+        assert_eq!(
+            error.to_string(),
+            "scientific name 'Astronium' must have a genus and a specific epithet"
+        );
+    }
+
+    #[test]
+    fn scientific_name_exposes_its_genus() {
+        let name = ScientificName::new("Astronium   lecointei").unwrap();
+
+        assert_eq!(name.as_str(), "Astronium lecointei");
+        assert_eq!(name.to_string(), "Astronium lecointei");
+        assert_eq!(name.genus(), "Astronium");
+        assert_eq!(ScientificName::new("Inga sp.").unwrap().genus(), "Inga");
+    }
+
+    #[test]
+    fn common_names_are_normalized_and_deduplicated_ignoring_case() {
+        let names = CommonNames::new([" Aroeira ", "", "aroeira", "Gonçalo  alves", "AROEIRA"]);
+
+        assert_eq!(names.as_slice(), ["Aroeira", "Gonçalo alves"]);
+        assert!(!names.is_empty());
+        assert!(CommonNames::new(Vec::<String>::new()).is_empty());
+    }
+
+    proptest! {
+        #[test]
+        fn wood_name_normalization_is_idempotent(raw in "\\PC*") {
+            if let Ok(name) = WoodName::new(&raw) {
+                prop_assert_eq!(WoodName::new(name.as_str()).unwrap(), name.clone());
+                prop_assert!(!name.as_str().starts_with(' ') && !name.as_str().ends_with(' '));
+                prop_assert!(!name.as_str().contains("  "));
+            } else {
+                prop_assert!(raw.trim().is_empty());
+            }
+        }
+
+        #[test]
+        fn scientific_name_round_trips_through_display(genus in "[A-Z][a-z]{1,12}", epithet in "[a-z]{1,12}") {
+            let name = ScientificName::new(format!("{genus} {epithet}")).unwrap();
+
+            prop_assert_eq!(ScientificName::new(name.to_string()).unwrap(), name.clone());
+            prop_assert_eq!(name.genus(), genus.as_str());
+        }
+
+        #[test]
+        fn common_names_never_contain_case_insensitive_duplicates(raw in proptest::collection::vec("[a-zA-Z ]{0,8}", 0..12)) {
+            let names = CommonNames::new(&raw);
+            let lowered: Vec<String> = names.as_slice().iter().map(|n| n.to_lowercase()).collect();
+            let mut unique = lowered.clone();
+            unique.sort();
+            unique.dedup();
+
+            prop_assert_eq!(unique.len(), lowered.len());
+            prop_assert!(names.as_slice().iter().all(|n| !n.is_empty()));
+        }
+    }
+}

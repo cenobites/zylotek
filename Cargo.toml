@@ -16,6 +16,8 @@ members = [
     "crates/zylotek-api",
     "crates/zylotek-contracts",
 ]
+# cargo-fuzz targets need nightly and libFuzzer; they live in their own workspace.
+exclude = ["fuzz"]
 
 [workspace.dependencies]
 zylotek-domain = { path = "crates/zylotek-domain" }
@@ -55,3 +57,13 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "jso
 toasty = { version = "0.11.0", features = ["sqlite", "serde"] }
 toasty-cli = { version = "0.11.0" }
 toasty-driver-sqlite = "0.11.0"
+
+# Test-only dependencies.
+assert_cmd = "2.2.2"
+criterion = { version = "0.8.2", features = ["async_tokio"] }
+http-body-util = "0.1.5"
+insta = { version = "1.49.0", features = ["json", "redactions"] }
+predicates = "3.1.4"
+proptest = "1.12.0"
+tempfile = "3.27.0"
+wiremock = "0.6.5"

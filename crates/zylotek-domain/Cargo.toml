@@ -3,7 +3,20 @@ name = "zylotek-domain"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# Fixtures and an in-memory `WoodRepository` for other crates' tests and benches.
+testing = []
+
 [dependencies]
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+tokio = { workspace = true }
+
+[[bench]]
+name = "value_objects"
+harness = false

@@ -19,3 +19,16 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 log = { workspace = true }
+
+[dev-dependencies]
+zylotek-domain = { workspace = true, features = ["testing"] }
+zylotek-infrastructure = { workspace = true, features = ["testing"] }
+criterion = { workspace = true }
+http-body-util = { workspace = true }
+insta = { workspace = true }
+proptest = { workspace = true }
+reqwest = { workspace = true }
+
+[[bench]]
+name = "http"
+harness = false

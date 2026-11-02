@@ -137,3 +137,86 @@ fn table_cell_texts(element: ElementRef<'_>, selector: &Selector) -> Vec<String>
         // .filter(|value| !value.is_empty())
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use scraper::Html;
+
+    use super::*;
+
+    fn root(document: &Html) -> ElementRef<'_> {
+        document.select(&query("body").unwrap()).next().unwrap()
+    }
+
+    #[test]
+    fn query_rejects_invalid_selectors() {
+        assert!(query("div > a").is_ok());
+        assert_eq!(
+            query("[[").unwrap_err().to_string(),
+            "invalid CSS selector: [["
+        );
+    }
+
+    #[test]
+    fn text_flattens_nested_markup_and_whitespace() {
+        let document = Html::parse_fragment("<p>  Olá <b>mundo</b>\n  !  </p>");
+        let p = document.select(&query("p").unwrap()).next().unwrap();
+
+        assert_eq!(text(p), "Olá mundo !");
+    }
+
+    #[test]
+    fn table_rows_by_header_returns_the_columns_under_the_header() {
+        let document = Html::parse_document(
+            "<body><table><tr><th>A</th><th colspan=2>B</th></tr>\
+             <tr><td>a1</td><td>b1</td><td>b2</td></tr>\
+             <tr><td>a2</td><td>b3</td></tr></table></body>",
+        );
+
+        let rows = table_rows_by_header(root(&document), "b").unwrap();
+
+        assert_eq!(rows, vec![vec!["b1", "b2"], vec!["b3"]]);
+    }
+
+    #[test]
+    fn table_rows_by_header_skips_tables_without_the_header_and_short_rows() {
+        let document = Html::parse_document(
+            "<body><table><tr><th>X</th></tr><tr><td>x</td></tr></table>\
+             <table><tr><th>A</th><th colspan=oops>B</th></tr><tr><td>only-a</td></tr><tr><td>a</td><td>b</td></tr></table></body>",
+        );
+
+        let rows = table_rows_by_header(root(&document), "B").unwrap();
+
+        assert_eq!(rows, vec![vec!["b"]]);
+    }
+
+    #[test]
+    fn table_rows_by_header_fails_when_no_table_has_the_header() {
+        let document = Html::parse_document("<body><table><tr><th>A</th></tr></table></body>");
+
+        let error = table_rows_by_header(root(&document), "Z").unwrap_err();
+
+        assert_eq!(error.to_string(), "table column with header Z not found");
+    }
+
+    #[test]
+    fn table_rows_by_heading_reads_the_table_next_to_the_heading() {
+        let document = Html::parse_document(
+            "<body><div><h3> Título </h3><table><tr><th>h1</th><th>h2</th></tr>\
+             <tr><td>a</td><td> b </td></tr><tr></tr></table></div></body>",
+        );
+
+        let rows = table_rows_by_heading(root(&document), "TÍTULO").unwrap();
+
+        assert_eq!(rows, vec![vec!["h1", "h2"], vec!["a", "b"]]);
+    }
+
+    #[test]
+    fn table_rows_by_heading_fails_when_the_heading_is_missing() {
+        let document = Html::parse_document("<body><div><h3>Outro</h3></div></body>");
+
+        let error = table_rows_by_heading(root(&document), "Título").unwrap_err();
+
+        assert_eq!(error.to_string(), "table Título not found");
+    }
+}

@@ -57,3 +57,55 @@ impl WoodFacade {
         self.delete_wood.execute(id).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use zylotek_domain::testing::wood;
+
+    use crate::woods::{
+        errors::WoodUseCaseError,
+        list_woods::ListWoodsQuery,
+        support::{Harness, create_command, update_command},
+    };
+
+    #[tokio::test]
+    async fn drives_a_wood_through_its_whole_lifecycle() {
+        let harness = Harness::new([]);
+        let events = harness.events.clone();
+        let facade = harness.facade();
+
+        let created = facade
+            .create_wood(create_command("Aroeira", "Myracrodruon urundeuva"))
+            .await
+            .unwrap();
+        let fetched = facade.get_wood(created.id()).await.unwrap();
+        let page = facade.list_woods(ListWoodsQuery::default()).await.unwrap();
+        let updated = facade
+            .update_wood(update_command(
+                created.id(),
+                "Muiracatiara",
+                "Astronium lecointei",
+            ))
+            .await
+            .unwrap();
+        facade.delete_wood(created.id()).await.unwrap();
+        let gone = facade.get_wood(created.id()).await.unwrap_err();
+
+        assert_eq!(fetched.id(), created.id());
+        assert_eq!(page.total, 1);
+        assert_eq!(updated.name().as_str(), "Muiracatiara");
+        assert!(matches!(gone, WoodUseCaseError::NotFound(_)));
+        assert_eq!(events.events().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn clones_share_the_same_state() {
+        let stored = wood("Aroeira", "Myracrodruon urundeuva");
+        let facade = Harness::new([stored.clone()]).facade();
+        let clone = facade.clone();
+
+        clone.delete_wood(stored.id()).await.unwrap();
+
+        assert!(facade.get_wood(stored.id()).await.is_err());
+    }
+}

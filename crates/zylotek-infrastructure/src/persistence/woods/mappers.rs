@@ -401,3 +401,185 @@ fn attributes(attributes: &vo::Attributes) -> Json<BTreeMap<String, String>> {
             .collect(),
     )
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use zylotek_domain::testing::{full_details, wood};
+
+    use super::*;
+
+    /// What the database would hand back for a record that was just saved.
+    pub(crate) fn model_from(record: WoodRecord) -> models::Wood {
+        models::Wood {
+            id: record.id,
+            name: record.name,
+            scientific_name: record.scientific_name,
+            family: record.family,
+            collection_location: record.collection_location,
+            common_names: record.common_names,
+            source_species_id: record.source_species_id,
+            source_page_url: record.source_page_url,
+            tree: record.tree,
+            general_characteristics: record.general_characteristics,
+            description: record.description,
+            kiln_drying_schedule: record.kiln_drying_schedule,
+            kiln_drying_days: record.kiln_drying_days,
+            images: record.images,
+            physical_properties: record.physical_properties,
+            mechanical_properties: record.mechanical_properties,
+            workabilities: record.workabilities,
+        }
+    }
+
+    fn model() -> models::Wood {
+        model_from(WoodRecord::from(&wood("Aroeira", "Myracrodruon urundeuva")))
+    }
+
+    #[test]
+    fn a_fully_populated_wood_survives_the_round_trip() {
+        let original = wood("Aroeira", "Myracrodruon urundeuva");
+
+        let restored = domain::Wood::try_from(model_from(WoodRecord::from(&original))).unwrap();
+
+        assert_eq!(restored.id(), original.id());
+        assert_eq!(restored.name(), original.name());
+        assert_eq!(restored.scientific_name(), original.scientific_name());
+        assert_eq!(restored.details(), &full_details());
+    }
+
+    #[test]
+    fn an_empty_wood_survives_the_round_trip() {
+        let (original, _) = domain::Wood::create(
+            vo::WoodName::new("Aroeira").unwrap(),
+            vo::ScientificName::new("Myracrodruon urundeuva").unwrap(),
+            vo::WoodDetails::default(),
+        );
+
+        let restored = domain::Wood::try_from(model_from(WoodRecord::from(&original))).unwrap();
+
+        assert_eq!(restored.details(), &vo::WoodDetails::default());
+    }
+
+    #[test]
+    fn the_record_flattens_the_domain_wood() {
+        let record = WoodRecord::from(&wood("Aroeira", "Myracrodruon urundeuva"));
+
+        assert_eq!(record.name, "Aroeira");
+        assert_eq!(record.family.as_deref(), Some("Anacardiaceae"));
+        assert_eq!(record.common_names.0, ["Aroeira", "Gonçalo-alves"]);
+        assert_eq!(record.source_species_id, Some(42));
+        assert_eq!(record.kiln_drying_days, Some(12.0));
+        assert_eq!(record.physical_properties.shrinkage.radial, Some(5.0));
+        assert_eq!(
+            record.mechanical_properties.dry.cleavage_strength,
+            Some(87.5)
+        );
+        assert_eq!(
+            record.tree.0.get("altura").map(String::as_str),
+            Some("30 m")
+        );
+    }
+
+    /// Every variant goes domain -> storage -> domain unchanged.
+    macro_rules! assert_enum_round_trips {
+        ($name:ident: $($variant:ident),+ $(,)?) => {
+            $(
+                let stored = models::$name::from(vo::$name::$variant);
+                assert_eq!(vo::$name::from(stored), vo::$name::$variant);
+            )+
+        };
+    }
+
+    #[test]
+    fn every_enum_variant_survives_the_round_trip() {
+        assert_enum_round_trips!(WorkabilityRating: NotApplicable, VeryPoor, Poor, Fair, Easy, Good, VeryGood, Excellent);
+        assert_enum_round_trips!(WorkabilityDefect: NotApplicable, Flawless, Fair, Fluffy, Crushed, RippedOff, Lifted, Scratched, FluffyAndCrushed, FluffyAndRippedOff, FluffyAndScratched, FluffyAndRippedOffAndLifted, FluffyAndCrushedAndLifted, CrushedAndRippedOff, CrushedAndFluffyAndRippedOff, LiftedAndRippedOff);
+        assert_enum_round_trips!(WorkabilityEquipmentSettings: NotApplicable, NotSuitable, Suitable);
+        assert_enum_round_trips!(NailCrackBehavior: NotApplicable, DoesNotCrack, DoesNotCrackExceptCorners, Cracks);
+        assert_enum_round_trips!(TreatabilityRating: NotApplicable, Green, Dry, VeryHard, Hard, ModeratelyHard, ModeratelyEasy, Easy, VeryEasy);
+    }
+
+    #[test]
+    fn a_source_needs_both_its_id_and_its_url() {
+        let mut model = model();
+        model.source_page_url = None;
+
+        let restored = domain::Wood::try_from(model).unwrap();
+
+        assert_eq!(restored.details().source, None);
+    }
+
+    #[test]
+    fn stored_data_is_revalidated_on_the_way_out() {
+        type Corrupt = fn(&mut models::Wood);
+        let cases: &[(&str, Corrupt)] = &[
+            ("empty name", |m| m.name = "  ".into()),
+            ("bad scientific name", |m| {
+                m.scientific_name = "Astronium".into()
+            }),
+            ("empty family", |m| m.family = Some(String::new())),
+            ("bad source url", |m| {
+                m.source_page_url = Some("/relative".into())
+            }),
+            ("bad image url", |m| {
+                m.images.bark = Some("not a url".into())
+            }),
+            ("negative kiln days", |m| m.kiln_drying_days = Some(-1.0)),
+            ("negative density", |m| {
+                m.physical_properties.density.basic = Some(-0.5)
+            }),
+            ("shrinkage over 100%", |m| {
+                m.physical_properties.shrinkage.radial = Some(101.0)
+            }),
+            ("negative strength", |m| {
+                m.mechanical_properties.green.nail_extraction_end_grain = Some(-3.0)
+            }),
+            ("negative modulus of rupture", |m| {
+                m.mechanical_properties.dry.bending_modulus_of_rupture = Some(-1.0)
+            }),
+            ("negative modulus of elasticity", |m| {
+                m.mechanical_properties.dry.bending_modulus_of_elasticity = Some(-1.0)
+            }),
+            ("negative parallel compression", |m| {
+                m.mechanical_properties.green.compression_parallel_to_grain = Some(-1.0)
+            }),
+            ("negative perpendicular compression", |m| {
+                m.mechanical_properties
+                    .green
+                    .compression_perpendicular_to_grain = Some(-1.0)
+            }),
+            ("negative parallel hardness", |m| {
+                m.mechanical_properties
+                    .green
+                    .janka_hardness_parallel_to_grain = Some(-1.0)
+            }),
+            ("negative end-grain hardness", |m| {
+                m.mechanical_properties.green.janka_hardness_end_grain = Some(-1.0)
+            }),
+            ("negative tension", |m| {
+                m.mechanical_properties.green.tension_perpendicular_to_grain = Some(-1.0)
+            }),
+            ("negative cleavage", |m| {
+                m.mechanical_properties.green.cleavage_strength = Some(-1.0)
+            }),
+            ("negative shear", |m| {
+                m.mechanical_properties.dry.shear_parallel_to_grain = Some(-1.0)
+            }),
+            ("negative parallel nail extraction", |m| {
+                m.mechanical_properties
+                    .green
+                    .nail_extraction_parallel_to_grain = Some(-1.0)
+            }),
+        ];
+
+        for &(label, corrupt) in cases {
+            let mut model = model();
+            corrupt(&mut model);
+
+            assert!(
+                domain::Wood::try_from(model).is_err(),
+                "{label} must be rejected"
+            );
+        }
+    }
+}

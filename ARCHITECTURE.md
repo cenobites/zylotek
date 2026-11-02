@@ -161,6 +161,8 @@ by the domain service and backed by a unique index. The SQLite repository is sti
 database URI and scraper URL are constants). Dependency versions live only in the root
 `[workspace.dependencies]`. Toasty 0.11 requires rustc 1.95+.
 
-**Testing & quality gates.** There are no tests yet. `prek` runs `cargo check`,
-`rustfmt --check` and `clippy -D warnings` over `--workspace --all-targets`; CI runs
-`cargo build` and `cargo test`.
+**Testing & quality gates.** See `TESTING.md`: unit tests beside the code (100% line
+coverage gate), integration tests under `crates/*/tests/` (80% gate), criterion benchmarks
+and cargo-fuzz targets. `prek` runs `cargo check`, `rustfmt --check` and `clippy -D warnings`
+over `--workspace --all-targets`; CI additionally runs both test suites, the coverage gates,
+a benchmark smoke run and a short fuzz run.

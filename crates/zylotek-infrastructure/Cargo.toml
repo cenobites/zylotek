@@ -3,6 +3,10 @@ name = "zylotek-infrastructure"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+# A recording `EventPublisher` and an in-memory database for other crates' tests.
+testing = []
+
 [dependencies]
 zylotek-domain = { workspace = true }
 async-trait = { workspace = true }
@@ -16,3 +20,15 @@ uuid = { workspace = true }
 toasty = { workspace = true }
 toasty-cli = { workspace = true }
 toasty-driver-sqlite = { workspace = true }
+
+[dev-dependencies]
+# Enables the `testing` feature for this crate's own benches and integration tests.
+zylotek-infrastructure = { path = ".", features = ["testing"] }
+zylotek-domain = { workspace = true, features = ["testing"] }
+criterion = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "repository"
+harness = false

@@ -586,3 +586,203 @@ fn attributes(attributes: &vo::Attributes) -> BTreeMap<String, String> {
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use zylotek_domain::testing::{full_details, wood};
+
+    use super::*;
+
+    fn round_trip(details: &vo::WoodDetails) -> vo::WoodDetails {
+        let schema = WoodDetailsSchema::from(details);
+        let json = serde_json::to_value(&schema).unwrap();
+
+        serde_json::from_value::<WoodDetailsSchema>(json)
+            .unwrap()
+            .try_into()
+            .unwrap()
+    }
+
+    #[test]
+    fn full_details_survive_schema_and_json() {
+        assert_eq!(round_trip(&full_details()), full_details());
+    }
+
+    #[test]
+    fn empty_details_survive_schema_and_json() {
+        assert_eq!(
+            round_trip(&vo::WoodDetails::default()),
+            vo::WoodDetails::default()
+        );
+    }
+
+    #[test]
+    fn empty_json_object_deserializes_to_empty_details() {
+        let schema: WoodDetailsSchema = serde_json::from_value(json!({})).unwrap();
+
+        assert_eq!(
+            vo::WoodDetails::try_from(schema).unwrap(),
+            vo::WoodDetails::default()
+        );
+    }
+
+    #[test]
+    fn the_request_flattens_details_next_to_the_names() {
+        let request: WoodRequest = serde_json::from_value(json!({
+            "name": "Aroeira",
+            "scientific_name": "Myracrodruon urundeuva",
+            "family": "Anacardiaceae",
+            "kiln_drying": {"duration_days": 3.5},
+        }))
+        .unwrap();
+
+        assert_eq!(request.name, "Aroeira");
+        assert_eq!(request.details.family.as_deref(), Some("Anacardiaceae"));
+        assert_eq!(request.details.kiln_drying.duration_days, Some(3.5));
+    }
+
+    #[test]
+    fn the_computed_ratio_is_ignored_on_input_and_emitted_on_output() {
+        let input: ShrinkageSchema = serde_json::from_value(
+            json!({"tangential": 6.0, "radial": 3.0, "tangential_radial_ratio": 99.0}),
+        )
+        .unwrap();
+        assert_eq!(input.tangential_radial_ratio, None);
+
+        let response = WoodResponse::from(&wood("Aroeira", "Myracrodruon urundeuva"));
+        assert_eq!(
+            response
+                .details
+                .physical_properties
+                .shrinkage
+                .tangential_radial_ratio,
+            Some(1.5)
+        );
+    }
+
+    #[test]
+    fn the_response_carries_identity_and_genus() {
+        let stored = wood("Aroeira", "Myracrodruon urundeuva");
+
+        let response = WoodResponse::from(&stored);
+
+        assert_eq!(response.id, stored.id().to_string());
+        assert_eq!(response.name, "Aroeira");
+        assert_eq!(response.genus, "Myracrodruon");
+        assert!(format!("{response:?}").contains("Aroeira"));
+    }
+
+    #[test]
+    fn the_page_response_mirrors_the_page() {
+        let page = WoodPage {
+            items: vec![wood("Aroeira", "Myracrodruon urundeuva")],
+            total: 7,
+            offset: 2,
+            limit: 5,
+        };
+
+        let response = WoodPageResponse::from(page);
+
+        assert_eq!((response.total, response.offset, response.limit), (7, 2, 5));
+        assert_eq!(response.items.len(), 1);
+        assert!(format!("{response:?}").contains("items"));
+    }
+
+    #[test]
+    fn list_params_are_all_optional() {
+        let params: ListWoodsParams = serde_json::from_value(json!({})).unwrap();
+
+        assert_eq!((params.offset, params.limit), (None, None));
+        assert!(format!("{params:?}").contains("offset"));
+    }
+
+    #[test]
+    fn invalid_values_are_rejected_wherever_they_appear() {
+        let invalid = [
+            json!({"family": " "}),
+            json!({"source": {"species_id": 1, "page_url": "nope"}}),
+            json!({"kiln_drying": {"duration_days": -1.0}}),
+            json!({"images": {"wood": "relative/path.jpg"}}),
+            json!({"physical_properties": {"density": {"green": -0.1}}}),
+            json!({"physical_properties": {"shrinkage": {"volumetric": 100.5}}}),
+            json!({"mechanical_properties": {"dry": {"static_bending": {"modulus_of_rupture": -1.0}}}}),
+            json!({"mechanical_properties": {"dry": {"static_bending": {"modulus_of_elasticity": -1.0}}}}),
+            json!({"mechanical_properties": {"green": {"compression": {"parallel_to_grain": -1.0}}}}),
+            json!({"mechanical_properties": {"green": {"compression": {"perpendicular_to_grain": -1.0}}}}),
+            json!({"mechanical_properties": {"green": {"janka_hardness": {"parallel_to_grain": -1.0}}}}),
+            json!({"mechanical_properties": {"green": {"janka_hardness": {"end_grain": -1.0}}}}),
+            json!({"mechanical_properties": {"green": {"nail_extraction": {"parallel_to_grain": -1.0}}}}),
+            json!({"mechanical_properties": {"green": {"tension_perpendicular_to_grain": -1.0}}}),
+            json!({"mechanical_properties": {"green": {"cleavage_strength": -1.0}}}),
+            json!({"mechanical_properties": {"green": {"shear_parallel_to_grain": -1.0}}}),
+        ];
+
+        for value in invalid {
+            let schema: WoodDetailsSchema = serde_json::from_value(value.clone()).unwrap();
+
+            assert!(
+                vo::WoodDetails::try_from(schema).is_err(),
+                "{value} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_enum_names_fail_to_deserialize() {
+        let error =
+            serde_json::from_value::<TreatabilitiesSchema>(json!({"heartwood": "excellent"}));
+
+        assert!(error.is_err());
+    }
+
+    /// Every variant converts to the domain and back, and serializes in snake_case.
+    macro_rules! assert_schema_enum {
+        ($name:ident: $($variant:ident => $json:literal),+ $(,)?) => {
+            $(
+                let schema = $name::from(vo::$name::$variant);
+                assert_eq!(vo::$name::from(schema), vo::$name::$variant);
+                assert_eq!(serde_json::to_value(schema).unwrap(), json!($json));
+                assert_eq!(format!("{:?}", serde_json::from_value::<$name>(json!($json)).unwrap()), format!("{schema:?}"));
+            )+
+        };
+    }
+
+    #[test]
+    fn every_enum_variant_converts_and_uses_snake_case() {
+        assert_schema_enum!(WorkabilityRating:
+            NotApplicable => "not_applicable", VeryPoor => "very_poor", Poor => "poor", Fair => "fair",
+            Easy => "easy", Good => "good", VeryGood => "very_good", Excellent => "excellent");
+        assert_schema_enum!(WorkabilityDefect:
+            NotApplicable => "not_applicable", Flawless => "flawless", Fair => "fair", Fluffy => "fluffy",
+            Crushed => "crushed", RippedOff => "ripped_off", Lifted => "lifted", Scratched => "scratched",
+            FluffyAndCrushed => "fluffy_and_crushed", FluffyAndRippedOff => "fluffy_and_ripped_off",
+            FluffyAndScratched => "fluffy_and_scratched",
+            FluffyAndRippedOffAndLifted => "fluffy_and_ripped_off_and_lifted",
+            FluffyAndCrushedAndLifted => "fluffy_and_crushed_and_lifted",
+            CrushedAndRippedOff => "crushed_and_ripped_off",
+            CrushedAndFluffyAndRippedOff => "crushed_and_fluffy_and_ripped_off",
+            LiftedAndRippedOff => "lifted_and_ripped_off");
+        assert_schema_enum!(WorkabilityEquipmentSettings:
+            NotApplicable => "not_applicable", NotSuitable => "not_suitable", Suitable => "suitable");
+        assert_schema_enum!(NailCrackBehavior:
+            NotApplicable => "not_applicable", DoesNotCrack => "does_not_crack",
+            DoesNotCrackExceptCorners => "does_not_crack_except_corners", Cracks => "cracks");
+        assert_schema_enum!(TreatabilityRating:
+            NotApplicable => "not_applicable", Green => "green", Dry => "dry", VeryHard => "very_hard",
+            Hard => "hard", ModeratelyHard => "moderately_hard", ModeratelyEasy => "moderately_easy",
+            Easy => "easy", VeryEasy => "very_easy");
+    }
+
+    #[test]
+    fn enums_default_to_not_applicable() {
+        assert_eq!(
+            serde_json::to_value(WorkabilityRating::default()).unwrap(),
+            json!("not_applicable")
+        );
+        assert_eq!(
+            serde_json::to_value(NailCrackBehavior::default()).unwrap(),
+            json!("not_applicable")
+        );
+    }
+}

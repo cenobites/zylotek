@@ -10,3 +10,8 @@ log = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+
+[dev-dependencies]
+zylotek-domain = { workspace = true, features = ["testing"] }
+zylotek-infrastructure = { workspace = true, features = ["testing"] }
+tokio = { workspace = true }

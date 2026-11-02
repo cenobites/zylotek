@@ -122,3 +122,110 @@ impl FromStr for WoodId {
             .map_err(|_| WoodError::InvalidId(value.to_owned()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::full_details;
+
+    fn names() -> (WoodName, ScientificName) {
+        (
+            WoodName::new("Muiracatiara").unwrap(),
+            ScientificName::new("Astronium lecointei").unwrap(),
+        )
+    }
+
+    #[test]
+    fn create_assigns_an_id_and_emits_wood_created() {
+        let (name, scientific_name) = names();
+
+        let (wood, event) = Wood::create(name.clone(), scientific_name.clone(), full_details());
+
+        assert!(matches!(event, WoodEvent::WoodCreated { wood_id } if wood_id == wood.id()));
+        assert_eq!(wood.name(), &name);
+        assert_eq!(wood.scientific_name(), &scientific_name);
+        assert_eq!(wood.details(), &full_details());
+    }
+
+    #[test]
+    fn create_gives_every_wood_a_distinct_id() {
+        let (name, scientific_name) = names();
+
+        let (first, _) = Wood::create(
+            name.clone(),
+            scientific_name.clone(),
+            WoodDetails::default(),
+        );
+        let (second, _) = Wood::create(name, scientific_name, WoodDetails::default());
+
+        assert_ne!(first.id(), second.id());
+    }
+
+    #[test]
+    fn restore_keeps_the_given_id() {
+        let (name, scientific_name) = names();
+        let id = WoodId::new();
+
+        let wood = Wood::restore(id, name, scientific_name, WoodDetails::default());
+
+        assert_eq!(wood.id(), id);
+    }
+
+    #[test]
+    fn update_replaces_the_state_and_emits_wood_updated() {
+        let (name, scientific_name) = names();
+        let (mut wood, _) = Wood::create(name, scientific_name, WoodDetails::default());
+        let id = wood.id();
+        let new_name = WoodName::new("Aroeira").unwrap();
+        let new_scientific_name = ScientificName::new("Myracrodruon urundeuva").unwrap();
+
+        let event = wood.update(
+            new_name.clone(),
+            new_scientific_name.clone(),
+            full_details(),
+        );
+
+        assert!(matches!(event, WoodEvent::WoodUpdated { wood_id } if wood_id == id));
+        assert_eq!(wood.id(), id);
+        assert_eq!(wood.name(), &new_name);
+        assert_eq!(wood.scientific_name(), &new_scientific_name);
+        assert_eq!(wood.details(), &full_details());
+    }
+
+    #[test]
+    fn delete_emits_wood_deleted() {
+        let (name, scientific_name) = names();
+        let (wood, _) = Wood::create(name, scientific_name, WoodDetails::default());
+        let id = wood.id();
+
+        assert!(matches!(wood.delete(), WoodEvent::WoodDeleted { wood_id } if wood_id == id));
+    }
+
+    #[test]
+    fn wood_is_cloneable_and_debuggable() {
+        let (name, scientific_name) = names();
+        let (wood, event) = Wood::create(name, scientific_name, WoodDetails::default());
+
+        assert_eq!(wood.clone().id(), wood.id());
+        assert!(format!("{wood:?}").contains("Muiracatiara"));
+        assert!(format!("{:?}", event.clone()).contains("WoodCreated"));
+    }
+
+    #[test]
+    fn wood_id_round_trips_through_its_string_form() {
+        let id = WoodId::default();
+
+        let parsed: WoodId = id.to_string().parse().unwrap();
+
+        assert_eq!(parsed, id);
+        assert_eq!(WoodId::from_uuid(id.as_uuid()), id);
+    }
+
+    #[test]
+    fn wood_id_rejects_invalid_strings() {
+        let error = "not-a-uuid".parse::<WoodId>().unwrap_err();
+
+        assert!(matches!(&error, WoodError::InvalidId(value) if value == "not-a-uuid"));
+        assert_eq!(error.to_string(), "invalid wood id 'not-a-uuid'");
+    }
+}

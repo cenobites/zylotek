@@ -1,40 +1,36 @@
 use std::sync::Arc;
 
-use tokio::{net::TcpListener, signal};
 use zylotek_application::woods::{
     create_wood::CreateWood, delete_wood::DeleteWood, facade::WoodFacade, get_wood::GetWood,
     handlers::WoodEventHandler, list_woods::ListWoods, update_wood::UpdateWood,
 };
 use zylotek_domain::woods::{
     events::WoodEvent,
+    repositories::WoodRepository,
     services::{WoodCreationService, WoodUpdateService},
 };
-use zylotek_infrastructure::{
-    event_bus::tokio::{TokioEventPublisher, run_event_handler},
-    persistence::{build_db, woods::repositories::PostgresWoodRepository},
-};
+use zylotek_infrastructure::event_bus::tokio::{TokioEventPublisher, run_event_handler};
 
-use crate::{errors::ApiError, router::router, state::AppState};
+use crate::state::AppState;
 
 pub mod errors;
 pub mod middleware;
 pub mod router;
+pub mod server;
 pub mod state;
 pub mod woods;
 
-async fn run() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .json()
-        .init();
+pub use server::cli;
 
-    let db = build_db("sqlite::memory:").await?;
+#[cfg(test)]
+mod test_support;
 
+/// Wires the use cases and event handler on top of `wood_repository`.
+///
+/// Spawns the event handler, so it must be called inside a Tokio runtime.
+pub fn build_state(wood_repository: Arc<dyn WoodRepository>) -> AppState {
     let wood_event_publisher = Arc::new(TokioEventPublisher::<WoodEvent>::new(1024));
     let wood_event_handler = WoodEventHandler::new();
-    let wood_repository = Arc::new(PostgresWoodRepository::new(db));
 
     let create_wood = CreateWood::new(
         wood_event_publisher.clone(),
@@ -56,69 +52,46 @@ async fn run() -> anyhow::Result<()> {
         wood_event_handler,
     ));
 
-    let state = AppState {
+    AppState {
         woods: Arc::new(wood_facade),
-    };
-
-    let app = router(state);
-    let listener = TcpListener::bind("0.0.0.0:8080").await?;
-
-    print_banner();
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
-
-    Ok(())
+    }
 }
 
-pub fn cli(args: Vec<&str>) -> Result<(), ApiError> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| ApiError::Internal(anyhow::Error::new(e)))?;
+#[cfg(test)]
+mod tests {
+    use axum::http::{Method, StatusCode};
+    use serde_json::json;
+    use zylotek_domain::testing::InMemoryWoodRepository;
 
-    let mut args: Vec<String> = args.into_iter().map(|str| str.to_string()).collect();
-    let _ = args.insert_mut(0, String::from("--"));
-
-    rt.block_on(run()).map_err(ApiError::Internal)
-}
-
-fn print_banner() {
-    let banner = r#"
-            _       _       _                  _
-           | |     | |     | |                (_)
-  _____   _| | ___ | |_ ___| | __   __ _ _ __  _
- |_  / | | | |/ _ \| __/ _ \ |/ /  / _` | '_ \| |
-  / /| |_| | | (_) | ||  __/   <  | (_| | |_) | |
- /___|\__, |_|\___/ \__\___|_|\_\  \__,_| .__/|_|
-       __/ |                            | |
-      |___/                             |_|
-    "#;
-    println!("{}", banner);
-    println!("Version: {}", env!("CARGO_PKG_VERSION"));
-}
-
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+    use super::*;
+    use crate::{
+        router::router,
+        test_support::{send, wood_body},
     };
 
-    #[cfg(unix)]
-    let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
-    };
+    #[tokio::test]
+    async fn build_state_wires_a_working_stack_with_a_live_event_handler() {
+        let state = build_state(Arc::new(InMemoryWoodRepository::new()));
+        let router = router(state);
 
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
+        // Publishing succeeds only because the spawned handler subscribed to the bus.
+        let (status, created) = send(
+            &router,
+            Method::POST,
+            "/api/v1/woods",
+            Some(&wood_body("Aroeira", "Myracrodruon urundeuva")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
 
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+        let uri = format!("/api/v1/woods/{}", created["id"].as_str().unwrap());
+        let (status, fetched) = send(&router, Method::GET, &uri, None).await;
+        assert_eq!(
+            (status, &fetched["name"]),
+            (StatusCode::OK, &json!("Aroeira"))
+        );
+
+        let (status, _) = send(&router, Method::DELETE, &uri, None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
     }
 }

@@ -23,3 +23,21 @@ pub enum EventPublishError {
     #[error("no subscribers")]
     NoSubscribers,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_errors_describe_themselves() {
+        assert_eq!(
+            EventPublishError::NoSubscribers.to_string(),
+            "no subscribers"
+        );
+        assert_eq!(
+            EventHandlerError::Failed.to_string(),
+            "failed to handle the event"
+        );
+        assert!(format!("{:?}", EventHandlerError::Failed).contains("Failed"));
+    }
+}

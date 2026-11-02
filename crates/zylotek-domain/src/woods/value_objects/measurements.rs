@@ -88,3 +88,78 @@ measurement!(
     Days,
     "days"
 );
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    fn assert_rejects<M: Measurement + fmt::Debug>(value: f64) {
+        let error = M::new(value).unwrap_err();
+        assert!(
+            matches!(error, WoodError::InvalidMeasurement { unit, value: v } if unit == M::UNIT && (v == value || v.is_nan()))
+        );
+    }
+
+    fn assert_measurement<M: Measurement + fmt::Debug + fmt::Display>(unit: &str, max: f64) {
+        assert_eq!(M::UNIT, unit);
+        assert_eq!(M::new(0.0).unwrap().value(), 0.0);
+        assert_eq!(M::new(max).unwrap().value(), max);
+        assert_eq!(M::new(1.5).unwrap().to_string(), format!("1.5 {unit}"));
+        assert!(format!("{:?}", M::new(1.5).unwrap()).contains("1.5"));
+
+        for invalid in [-0.1, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_rejects::<M>(invalid);
+        }
+
+        assert!(M::from_optional(None).unwrap().is_none());
+        assert_eq!(M::from_optional(Some(2.0)).unwrap().unwrap().value(), 2.0);
+        assert!(M::from_optional(Some(-1.0)).is_err());
+    }
+
+    #[test]
+    fn every_measurement_validates_its_range_and_formats_with_its_unit() {
+        assert_measurement::<GramsPerCubicCentimeter>("g/cm³", f64::MAX);
+        assert_measurement::<Percentage>("%", 100.0);
+        assert_measurement::<KgfPerSquareCentimeter>("kgf/cm²", f64::MAX);
+        assert_measurement::<KgfPerCentimeter>("kgf/cm", f64::MAX);
+        assert_measurement::<Kgf>("kgf", f64::MAX);
+        assert_measurement::<Days>("days", f64::MAX);
+    }
+
+    #[test]
+    fn percentage_rejects_values_above_one_hundred() {
+        assert_rejects::<Percentage>(100.01);
+        assert_eq!(
+            Percentage::new(101.0).unwrap_err().to_string(),
+            "invalid measurement: 101 %"
+        );
+    }
+
+    #[test]
+    fn measurements_compare_by_value() {
+        let small = Kgf::new(1.0).unwrap();
+        let large = Kgf::new(2.0).unwrap();
+
+        assert!(small < large);
+        assert_eq!(small, small.clone());
+    }
+
+    proptest! {
+        #[test]
+        fn percentage_accepts_exactly_zero_to_one_hundred(value in proptest::num::f64::ANY) {
+            let accepted = Percentage::new(value).is_ok();
+
+            prop_assert_eq!(accepted, (0.0..=100.0).contains(&value));
+            if accepted {
+                prop_assert_eq!(Percentage::new(value).unwrap().value(), value);
+            }
+        }
+
+        #[test]
+        fn unbounded_measurements_accept_every_finite_non_negative_value(value in proptest::num::f64::ANY) {
+            prop_assert_eq!(Kgf::new(value).is_ok(), value.is_finite() && value >= 0.0);
+        }
+    }
+}

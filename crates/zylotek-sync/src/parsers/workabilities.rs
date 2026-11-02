@@ -205,3 +205,134 @@ mod html {
     // table treatability of wood
     pub const TREATABILITY_OF_WOOD_TABLE_HEADING: &str = "tratabilidade da madeira";
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ratings_map_from_portuguese() {
+        let cases = [
+            ("-", WorkabilityRating::NotApplicable),
+            ("", WorkabilityRating::NotApplicable),
+            ("Ruim", WorkabilityRating::Poor),
+            ("muito  ruim", WorkabilityRating::VeryPoor),
+            ("Regular", WorkabilityRating::Fair),
+            ("aceitável", WorkabilityRating::Fair),
+            ("fácil", WorkabilityRating::Easy),
+            ("Bom", WorkabilityRating::Good),
+            ("MUITO BOM", WorkabilityRating::VeryGood),
+            ("excelente", WorkabilityRating::Excellent),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                parse_workability_rating(input).unwrap(),
+                expected,
+                "{input:?}"
+            );
+        }
+        assert!(
+            parse_workability_rating("péssimo")
+                .unwrap_err()
+                .to_string()
+                .contains("péssimo")
+        );
+    }
+
+    #[test]
+    fn defects_map_from_portuguese() {
+        let cases = [
+            ("-", WorkabilityDefect::NotApplicable),
+            (
+                "arrancada, esmagada e felpuda",
+                WorkabilityDefect::CrushedAndFluffyAndRippedOff,
+            ),
+            (
+                "arrancada e esmagada",
+                WorkabilityDefect::CrushedAndRippedOff,
+            ),
+            ("esmagada", WorkabilityDefect::Crushed),
+            ("felpuda e arrancada", WorkabilityDefect::FluffyAndRippedOff),
+            ("arrancada e felpuda", WorkabilityDefect::FluffyAndRippedOff),
+            ("felpuda e riscada", WorkabilityDefect::FluffyAndScratched),
+            ("riscada e felpuda", WorkabilityDefect::FluffyAndScratched),
+            (
+                "felpuda, arrancada e levantada",
+                WorkabilityDefect::FluffyAndRippedOffAndLifted,
+            ),
+            (
+                "felpuda esmagada levantada",
+                WorkabilityDefect::FluffyAndCrushedAndLifted,
+            ),
+            ("felpuda e esmagada", WorkabilityDefect::FluffyAndCrushed),
+            ("Felpuda", WorkabilityDefect::Fluffy),
+            ("arrancada", WorkabilityDefect::RippedOff),
+            (
+                "levantada e arrancada",
+                WorkabilityDefect::LiftedAndRippedOff,
+            ),
+            ("levantada", WorkabilityDefect::Lifted),
+            ("riscada", WorkabilityDefect::Scratched),
+            ("aceitável", WorkabilityDefect::Fair),
+            ("aceitavel", WorkabilityDefect::Fair),
+            ("sem defeito", WorkabilityDefect::Flawless),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(
+                parse_workability_defect(input).unwrap(),
+                expected,
+                "{input:?}"
+            );
+        }
+        assert!(parse_workability_defect("quebrada").is_err());
+    }
+
+    #[test]
+    fn equipment_settings_nail_cracks_and_treatability_map_from_portuguese() {
+        assert_eq!(
+            parse_workability_equipment("").unwrap(),
+            WorkabilityEquipmentSettings::NotApplicable
+        );
+        assert_eq!(
+            parse_workability_equipment("não adequada").unwrap(),
+            WorkabilityEquipmentSettings::NotSuitable
+        );
+        assert_eq!(
+            parse_workability_equipment("Adequada").unwrap(),
+            WorkabilityEquipmentSettings::Suitable
+        );
+        assert!(parse_workability_equipment("meio").is_err());
+
+        assert_eq!(
+            parse_nail_crack("-").unwrap(),
+            NailCrackBehavior::NotApplicable
+        );
+        assert_eq!(
+            parse_nail_crack("não trinca").unwrap(),
+            NailCrackBehavior::DoesNotCrack
+        );
+        assert_eq!(
+            parse_nail_crack("Trinca").unwrap(),
+            NailCrackBehavior::Cracks
+        );
+        assert!(parse_nail_crack("rachou").is_err());
+
+        let treatabilities = [
+            ("-", TreatabilityRating::NotApplicable),
+            ("verde", TreatabilityRating::Green),
+            ("seca", TreatabilityRating::Dry),
+            ("muito difícil", TreatabilityRating::VeryHard),
+            ("moderadamente difícil", TreatabilityRating::ModeratelyHard),
+            ("difícil", TreatabilityRating::Hard),
+            ("fácil", TreatabilityRating::Easy),
+            ("moderadamente fácil", TreatabilityRating::ModeratelyEasy),
+            ("muito fácil", TreatabilityRating::VeryEasy),
+        ];
+        for (input, expected) in treatabilities {
+            assert_eq!(parse_treatability(input).unwrap(), expected, "{input:?}");
+        }
+        assert!(parse_treatability("impossível").is_err());
+    }
+}

@@ -1,9 +1,10 @@
-use toasty_cli::ToastyCli;
-
 use crate::errors::InfrastructureError;
 
 pub mod errors;
+mod migrations;
 pub mod woods;
+
+pub use migrations::cli;
 
 pub async fn build_db(database_uri: &str) -> Result<toasty::Db, InfrastructureError> {
     let db = toasty::Db::builder()
@@ -16,35 +17,35 @@ pub async fn build_db(database_uri: &str) -> Result<toasty::Db, InfrastructureEr
     Ok(db)
 }
 
-pub fn cli(args: Vec<&str>) -> Result<(), InfrastructureError> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| InfrastructureError::Fatal(e.to_string()))?;
-
-    let mut args: Vec<String> = args.into_iter().map(|str| str.to_string()).collect();
-    let _ = args.insert_mut(0, String::from("--"));
-
-    let handle: tokio::task::JoinHandle<Result<_, InfrastructureError>> = rt.spawn(async move {
-        let config = toasty_cli::Config::load()?;
-
-        let db = build_db("sqlite::memory:").await?;
-
-        let cli = ToastyCli::with_config(db, config);
-        cli.parse_from(args).await?;
-
-        Ok(())
-    });
-
-    let _ = rt
-        .block_on(handle)
-        .map_err(|e| InfrastructureError::Fatal(e.to_string()))?;
-
-    Ok(())
-}
-
 impl From<toasty::Error> for InfrastructureError {
     fn from(err: toasty::Error) -> Self {
         Self::Database(err.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn build_db_connects_and_pushes_the_schema() {
+        let db = build_db("sqlite::memory:").await.unwrap();
+
+        // The schema exists, so counting rows works.
+        let mut db = db;
+        let count = woods::models::Wood::all()
+            .count()
+            .exec(&mut db)
+            .await
+            .unwrap();
+
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn build_db_rejects_an_unknown_scheme() {
+        let error = build_db("nosuchdb://localhost").await.unwrap_err();
+
+        assert!(matches!(error, InfrastructureError::Database(_)));
     }
 }

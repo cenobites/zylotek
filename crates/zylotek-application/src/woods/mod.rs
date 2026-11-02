@@ -6,3 +6,6 @@ pub mod get_wood;
 pub mod handlers;
 pub mod list_woods;
 pub mod update_wood;
+
+#[cfg(test)]
+pub(crate) mod support;

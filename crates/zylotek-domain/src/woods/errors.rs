@@ -25,3 +25,23 @@ pub enum WoodError {
     #[error("repository error")]
     Repository(#[from] RepositoryError),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wood_errors_describe_themselves() {
+        let duplicate = WoodError::ScientificNameAlreadyExists {
+            scientific_name: "Astronium lecointei".into(),
+        };
+        assert_eq!(
+            duplicate.to_string(),
+            "wood scientific name 'Astronium lecointei' already exists"
+        );
+
+        let repository = WoodError::from(RepositoryError::Database);
+        assert_eq!(repository.to_string(), "repository error");
+        assert!(format!("{repository:?}").contains("Database"));
+    }
+}

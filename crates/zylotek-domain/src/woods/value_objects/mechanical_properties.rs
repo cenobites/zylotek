@@ -58,3 +58,46 @@ pub struct NailExtraction {
     pub parallel_to_grain: Option<Kgf>,
     pub end_grain: Option<Kgf>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::woods::value_objects::Measurement;
+
+    #[test]
+    fn by_condition_selects_the_matching_specimens() {
+        let properties = MechanicalProperties {
+            green: MechanicalPropertiesByCondition {
+                cleavage_strength: Some(KgfPerCentimeter::new(1.0).unwrap()),
+                ..Default::default()
+            },
+            dry: MechanicalPropertiesByCondition {
+                cleavage_strength: Some(KgfPerCentimeter::new(2.0).unwrap()),
+                ..Default::default()
+            },
+        };
+
+        let cleavage = |condition| {
+            properties
+                .by_condition(condition)
+                .cleavage_strength
+                .map(|m| m.value())
+        };
+
+        assert_eq!(cleavage(MoistureCondition::Green), Some(1.0));
+        assert_eq!(cleavage(MoistureCondition::Dry), Some(2.0));
+    }
+
+    #[test]
+    fn mechanical_properties_default_to_unknown() {
+        let properties = MechanicalProperties::default();
+
+        assert_eq!(properties.clone(), properties);
+        assert_eq!(properties.green.static_bending, StaticBending::default());
+        assert_eq!(properties.green.compression, Compression::default());
+        assert_eq!(properties.green.janka_hardness, JankaHardness::default());
+        assert_eq!(properties.green.nail_extraction, NailExtraction::default());
+        assert!(format!("{properties:?} {:?}", MoistureCondition::Dry).contains("Dry"));
+        assert_eq!(MoistureCondition::Green.clone(), MoistureCondition::Green);
+    }
+}

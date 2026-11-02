@@ -1,0 +1,51 @@
+[package]
+name = "zylotek-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Fuzzing needs nightly and libFuzzer, so this crate is its own workspace.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+arbitrary = { version = "1.5.0", features = ["derive"] }
+axum = "0.8.9"
+http-body-util = "0.1.5"
+serde_json = "1.0"
+tokio = { version = "1.53.2", features = ["rt", "macros"] }
+tower = { version = "0.5", features = ["util"] }
+zylotek-api = { path = "../crates/zylotek-api" }
+zylotek-domain = { path = "../crates/zylotek-domain", features = ["testing"] }
+zylotek-sync = { path = "../crates/zylotek-sync" }
+
+[[bin]]
+name = "parse_wood"
+path = "fuzz_targets/parse_wood.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wood_request_json"
+path = "fuzz_targets/wood_request_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "value_objects"
+path = "fuzz_targets/value_objects.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_requests"
+path = "fuzz_targets/http_requests.rs"
+test = false
+doc = false
+bench = false
