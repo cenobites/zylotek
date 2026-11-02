@@ -11,8 +11,8 @@ fn main() {
 
     let result = match cli.command {
         Some(Commands::Db(cmd)) => db::execute(&cmd),
-        Some(Commands::Sync(cmd)) => sync::execute(&cmd),
-        Some(Commands::Api(cmd)) => api::execute(&cmd),
+        Some(Commands::Sync(cmd)) => sync::execute(&cmd, &cli.database_url),
+        Some(Commands::Api(cmd)) => api::execute(&cmd, &cli.database_url),
         _ => {
             let _ = Cli::parse_from(["zylotek", "--help"]);
             Ok(())

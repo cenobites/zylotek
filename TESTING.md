@@ -17,8 +17,8 @@ Four layers, each with a `make` target. `make help` lists them all.
   allowed to stay uncovered: the unreachable `else` in `basic_information.rs` (a
   `div > a > img` always has an element grandparent).
 - **Integration: at least 80% of lines** (`make cov-integration`), measured from `tests/`
-  only. It currently sits around 93%. The one deliberate hole is `sync run`, which would hit
-  the live LPF site.
+  only. It sits around 93%. The deliberate hole is `sync run --source web`, which would hit
+  the live LPF site; the CSV source is covered end to end.
 
 Files excluded from the unit gate, and why (the regex lives in the `Makefile`):
 
@@ -43,6 +43,10 @@ Crates share fixtures through `testing` modules, compiled only for tests or behi
   injection (`.fail_on(Operation::Save)`).
 - `zylotek_infrastructure::testing`: `RecordingEventPublisher`, `FailingEventPublisher`,
   `memory_db()`.
+- `toasty/fixtures/*.csv`: the real open-data export. `crates/zylotek-sync/tests/open_data.rs`
+  parses all 269 rows and checks facts measured independently with Python (225 distinct
+  species, 52 synonyms, SI to kgf conversions of a known row); `crates/zylotek-cli/tests/cli.rs`
+  imports it into a temp SQLite file and reads the database back.
 - `crates/zylotek-sync/tests/fixtures/species.html`: a species page in the markup the
   parsers expect. Tests mutate it (`mutated(from, to)`) to build failure cases. It is
   hand-written, not captured from the site; if the LPF markup changes, update it from a
@@ -67,6 +71,7 @@ Needs nightly (`rustup toolchain install nightly`) and `cargo install cargo-fuzz
 | Target              | Property                                                              |
 |---------------------|-----------------------------------------------------------------------|
 | `parse_wood`        | Any HTML yields `Ok` or `Err`, never a panic                          |
+| `parse_open_data`   | Any bytes yield a parse result or error; parsed woods are valid       |
 | `wood_request_json` | Any JSON body is rejected or converts to values that re-validate      |
 | `value_objects`     | Constructors never panic; accepted values are idempotent              |
 | `http_requests`     | Any request to the router is answered, never with a 5xx               |
@@ -85,7 +90,7 @@ git-ignored.
 
 ## Known bugs
 
-Found while writing these tests. None is fixed; each has an `#[ignore]`d test
+Found while writing these tests. Each open one has an `#[ignore]`d test
 (`make test-known-bugs` runs them, and they fail until the bug is fixed).
 
 1. **The scraper panics on malformed pages.** `parse_wood` unwraps or indexes page content in
@@ -94,8 +99,8 @@ Found while writing these tests. None is fixed; each has an `#[ignore]`d test
    fuzzing; see `crates/zylotek-sync/tests/malformed_pages.rs`.
 2. **`persistence::cli` swallows errors.** It discards the spawned task's `Result`, so
    `db setup` / `db migrate` exit 0 when `Toasty.toml` is missing or a migration fails.
-3. **`build_db` can't reopen a database.** It always runs `push_schema()`, which fails with
-   "table already exists" on an existing file. See `tests/file_database.rs`.
+3. ~~`build_db` can't reopen a database.~~ Fixed: it now pushes the schema only when the
+   tables are missing (`tests/file_database.rs`).
 4. **Duplicate-name races return 500.** Two concurrent creates of one scientific name: the
    loser hits the unique index and gets `RepositoryError::Database` → 500. The unused
    `RepositoryError::Duplicate` looks intended for this. Exactly one wood is stored.

@@ -9,12 +9,8 @@ pub enum ApiCommand {
     Run,
 }
 
-pub fn execute(cmd: &ApiCommand) -> Result<(), Error> {
+pub fn execute(cmd: &ApiCommand, database_url: &str) -> Result<(), Error> {
     match cmd {
-        ApiCommand::Run => cmd_cli(vec![]),
+        ApiCommand::Run => Ok(cli(database_url)?),
     }
-}
-
-fn cmd_cli(args: Vec<&str>) -> Result<(), Error> {
-    Ok(cli(args)?)
 }

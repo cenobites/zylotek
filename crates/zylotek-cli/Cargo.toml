@@ -8,13 +8,17 @@ name = "zylotek-cli"
 path = "src/main.rs"
 
 [dependencies]
+zylotek-domain = { workspace = true }
+zylotek-application = { workspace = true }
 zylotek-infrastructure = { workspace = true }
 zylotek-api = { workspace = true }
 zylotek-sync = { workspace = true }
 log = { workspace = true }
 clap = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
+zylotek-domain = { workspace = true, features = ["testing"] }
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
 tempfile = { workspace = true }

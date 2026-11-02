@@ -1,5 +1,7 @@
+mod open_data;
 mod parsers;
 
+pub use open_data::{DATASET_URL, OpenData, RejectedRow, parse_open_data};
 pub use parsers::parse_wood;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -59,7 +61,8 @@ pub struct SyncronizerRunner {
 }
 
 impl SyncronizerRunner {
-    pub fn run(self) -> Result<(), Error> {
+    /// Scrapes every listing page and every species page, returning what was scraped.
+    pub fn run(self) -> Result<Vec<ScrapedWood>, Error> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
@@ -86,14 +89,16 @@ impl SyncronizerRunner {
             }));
         }
 
+        let mut scraped = Vec::new();
         for handle in handles {
             let woods = rt
                 .block_on(handle)
                 .map_err(|e| Error::from(e.to_string()))??;
-            log::debug!("{woods:#?}");
+            log::debug!("scraped {} woods", woods.len());
+            scraped.extend(woods);
         }
 
-        Ok(())
+        Ok(scraped)
     }
 }
 

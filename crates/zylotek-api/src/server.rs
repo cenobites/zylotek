@@ -8,7 +8,7 @@ use zylotek_infrastructure::persistence::{build_db, woods::repositories::Postgre
 
 use crate::{build_state, errors::ApiError, router::router};
 
-async fn run() -> anyhow::Result<()> {
+async fn run(database_url: &str) -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -16,7 +16,7 @@ async fn run() -> anyhow::Result<()> {
         .json()
         .init();
 
-    let db = build_db("sqlite::memory:").await?;
+    let db = build_db(database_url).await?;
     let state = build_state(Arc::new(PostgresWoodRepository::new(db)));
 
     let app = router(state);
@@ -31,16 +31,14 @@ async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn cli(args: Vec<&str>) -> Result<(), ApiError> {
+/// Serves the API on port 8080 until a termination signal arrives.
+pub fn cli(database_url: &str) -> Result<(), ApiError> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| ApiError::Internal(anyhow::Error::new(e)))?;
 
-    let mut args: Vec<String> = args.into_iter().map(|str| str.to_string()).collect();
-    let _ = args.insert_mut(0, String::from("--"));
-
-    rt.block_on(run()).map_err(ApiError::Internal)
+    rt.block_on(run(database_url)).map_err(ApiError::Internal)
 }
 
 fn print_banner() {

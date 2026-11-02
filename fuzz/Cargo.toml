@@ -49,3 +49,10 @@ path = "fuzz_targets/http_requests.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "parse_open_data"
+path = "fuzz_targets/parse_open_data.rs"
+test = false
+doc = false
+bench = false

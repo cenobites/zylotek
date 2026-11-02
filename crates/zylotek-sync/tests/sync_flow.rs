@@ -45,15 +45,20 @@ async fn mount_species(server: &MockServer, id: u64, response: ResponseTemplate)
         .await;
 }
 
-async fn run(server: &MockServer, last_page: usize) -> Result<(), String> {
+async fn run(server: &MockServer, last_page: usize) -> Result<usize, String> {
     let runner = Syncronizer::new()
         .with_listing_url(format!("{}/madeiras", server.uri()))
         .with_total_page_number(last_page)
         .build();
 
-    tokio::task::spawn_blocking(move || runner.run().map_err(|error| error.to_string()))
-        .await
-        .unwrap()
+    tokio::task::spawn_blocking(move || {
+        runner
+            .run()
+            .map(|woods| woods.len())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -70,7 +75,7 @@ async fn scrapes_every_listing_page_and_every_species() {
         .await;
     }
 
-    run(&server, 1).await.unwrap();
+    assert_eq!(run(&server, 1).await.unwrap(), 3);
 
     // MockServer verifies each `.expect(1)` on drop; 2 listings + 3 species.
     assert_eq!(server.received_requests().await.unwrap().len(), 5);
@@ -81,7 +86,7 @@ async fn empty_listing_pages_are_fine() {
     let server = MockServer::start().await;
     mount_listing(&server, 0, listing(&server, &[])).await;
 
-    run(&server, 0).await.unwrap();
+    assert_eq!(run(&server, 0).await.unwrap(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]

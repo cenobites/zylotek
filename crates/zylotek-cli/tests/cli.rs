@@ -14,6 +14,7 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 const TOASTY_CONFIG: &str = include_str!("../../../Toasty.toml");
+const WORKSPACE_ROOT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
 fn cli() -> Command {
     Command::cargo_bin("zylotek-cli").unwrap()
@@ -175,6 +176,7 @@ fn api_run_serves_health_and_stops_on_sigterm() {
     let stdout = fs::File::create(output.path().join("stdout")).unwrap();
     let mut child = Process::new(assert_cmd::cargo::cargo_bin("zylotek-cli"))
         .args(["api", "run"])
+        .env("ZYLOTEK_DATABASE_URL", "sqlite::memory:")
         .stdout(stdout)
         .stderr(Stdio::null())
         .spawn()
@@ -216,4 +218,163 @@ fn assert_stdout_has_banner(path: &Path) {
     let stdout = fs::read_to_string(path).unwrap();
 
     assert!(stdout.contains("Version: 0.1.0"), "{stdout}");
+}
+
+// --- sync -----------------------------------------------------------------------------
+
+use zylotek_domain::woods::{entities::Wood, repositories::WoodRepository};
+use zylotek_infrastructure::persistence::{build_db, woods::repositories::PostgresWoodRepository};
+
+fn database_in(dir: &TempDir) -> String {
+    format!("sqlite:{}", dir.path().join("zylotek.db").display())
+}
+
+fn stored_woods(database_url: &str) -> Vec<Wood> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let repository = PostgresWoodRepository::new(build_db(database_url).await.unwrap());
+            repository.list(0, 1000).await.unwrap()
+        })
+}
+
+fn sync(database_url: &str) -> Command {
+    let mut command = cli();
+    command
+        .current_dir(WORKSPACE_ROOT)
+        .env_remove("ZYLOTEK_DATABASE_URL")
+        .args(["--database-url", database_url, "sync", "run"]);
+    command
+}
+
+#[test]
+fn sync_reads_the_bundled_csv_by_default_and_stores_one_wood_per_species() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+
+    sync(&url)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Read 269 rows from toasty/fixtures/",
+        ))
+        .stdout(predicate::str::contains("Stored 225 new woods"))
+        .stdout(predicate::str::contains(
+            "skipped 44 whose scientific name is already registered",
+        ));
+
+    let woods = stored_woods(&url);
+    assert_eq!(woods.len(), 225);
+    let first_lot = woods
+        .iter()
+        .find(|w| w.scientific_name().as_str() == "Astronium lecointei")
+        .expect("the species is stored");
+    // Two lots share this name; the first in the file (id 21, Belém) wins.
+    assert_eq!(first_lot.name().as_str(), "Muiracatiara-rajada");
+    assert_eq!(first_lot.details().source.as_ref().unwrap().species_id, 21);
+    assert_eq!(
+        first_lot.details().collection_location.as_deref(),
+        Some("Belém, PA")
+    );
+}
+
+#[test]
+fn syncing_twice_stores_nothing_new() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+    sync(&url).assert().success();
+
+    sync(&url)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Stored 0 new woods"))
+        .stdout(predicate::str::contains("skipped 269"));
+
+    assert_eq!(stored_woods(&url).len(), 225);
+}
+
+#[test]
+fn an_explicit_file_source_is_the_same_as_the_default() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+
+    sync(&url).args(["--source", "file"]).assert().success();
+
+    assert_eq!(stored_woods(&url).len(), 225);
+}
+
+#[test]
+fn bad_rows_are_reported_and_fail_the_run_but_good_rows_are_still_stored() {
+    let dir = TempDir::new().unwrap();
+    let csv = dir.path().join("woods.csv");
+    fs::write(
+        &csv,
+        "id_especie;nome_cientifico;nome_popular_1;familia\r\n\
+         1;Astronium lecointei;MUIRACATIARA;Anacardiaceae\r\n\
+         2;Solo;SEM EPITETO;Fabaceae\r\n",
+    )
+    .unwrap();
+    let url = database_in(&dir);
+
+    sync(&url)
+        .arg("--file")
+        .arg(&csv)
+        .assert()
+        .failure()
+        .code(1)
+        .stdout(predicate::str::contains("Stored 1 new woods"))
+        .stderr(predicate::str::contains("rejected line 3 (id 2)"))
+        .stderr(predicate::str::contains("1 rows could not be imported"));
+
+    assert_eq!(stored_woods(&url).len(), 1);
+}
+
+#[test]
+fn a_missing_or_unusable_file_fails_without_touching_the_database() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+    let not_a_dataset = dir.path().join("other.csv");
+    fs::write(&not_a_dataset, "a;b\r\n1;2\r\n").unwrap();
+
+    sync(&url)
+        .args(["--file", "nowhere.csv"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("cannot read nowhere.csv"));
+    sync(&url)
+        .arg("--file")
+        .arg(&not_a_dataset)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("lacks the required columns"));
+
+    assert!(!dir.path().join("zylotek.db").exists());
+}
+
+#[test]
+fn an_unknown_source_is_a_usage_error() {
+    let dir = TempDir::new().unwrap();
+
+    sync(&database_in(&dir))
+        .args(["--source", "ftp"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("invalid value 'ftp'"));
+}
+
+#[test]
+fn the_database_url_can_come_from_the_environment() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+
+    cli()
+        .current_dir(WORKSPACE_ROOT)
+        .env("ZYLOTEK_DATABASE_URL", &url)
+        .args(["sync", "run"])
+        .assert()
+        .success();
+
+    assert_eq!(stored_woods(&url).len(), 225);
 }

@@ -5,8 +5,9 @@ A database of Brazilian wood species. Zylotek scrapes the
 catalogue (basic information, physical and mechanical properties, workability) and serves
 wood records over an HTTP CRUD API.
 
-> **Status: early development.** The scraper parses full wood pages into domain objects but
-> only logs them; the database is in-memory. See [Current limitations](#current-limitations).
+> **Status: early development.** Woods are loaded from the open-data CSV (or scraped from the
+> site) into a SQLite database and served over the API. See
+> [Current limitations](#current-limitations).
 
 ## Requirements
 
@@ -17,8 +18,10 @@ wood records over an HTTP CRUD API.
 ## Usage
 
 ```bash
-# Scrape the LPF catalogue (logs parsed woods)
+# Load woods into the database (default: the bundled open-data CSV)
 cargo run -p zylotek-cli -- sync run
+cargo run -p zylotek-cli -- sync run --file other.csv      # another export of the same format
+cargo run -p zylotek-cli -- sync run --source web          # scrape the LPF web site instead
 
 # Generate / apply database migrations (Toasty)
 cargo run -p zylotek-cli -- db setup
@@ -27,6 +30,19 @@ cargo run -p zylotek-cli -- db migrate      # or: make migrate
 # Run the HTTP API on 0.0.0.0:8080
 cargo run -p zylotek-cli -- api run
 ```
+
+`sync` and `api` share one database: `sqlite:zylotek.db` in the working directory unless you
+pass `--database-url <url>` or set `ZYLOTEK_DATABASE_URL` (`sqlite::memory:` for a throwaway
+one). Run `sync run` first and `api run` then serves what was stored. Syncing is repeatable:
+a wood whose scientific name is already stored is skipped, so a second run adds nothing.
+
+#### The CSV import
+
+`sync run --source file` (the default) reads the LPF open-data export. Each row there is a
+test *lot*, a species collected at one place, and 269 rows cover only 225 distinct species,
+so the first lot in the file is stored for each species and the rest are reported as
+skipped. Values are converted from the file's SI units (MPa, N) to the kgf-based units the
+API serves; see `crates/zylotek-sync/src/open_data.rs` for the column mapping.
 
 ### API
 
@@ -93,8 +109,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how the code is organised.
 
 ## Current limitations
 
-- The database URI is hard-coded to `sqlite::memory:`, so nothing persists between runs.
-- `zylotek-sync` produces domain objects but does not store them yet.
+- Only the first test lot of each species is stored; the other lots in the CSV (different
+  collection sites and measurements) are skipped, because a scientific name is registered once.
+- `sync run --source web` has not been run against the live site since the import was added,
+  and a malformed page can still abort it (see `TESTING.md`, "Known bugs").
+- The CSV has no workability data or images, so those fields stay empty for imported woods.
 - Migration `0001` adds `NOT NULL` columns without defaults; it applies to an empty
   `woods` table only.
 - `zylotek-contracts` and the root `src/main.rs` are placeholders.

@@ -25,10 +25,7 @@ async fn data_is_written_to_disk() {
     assert_eq!(found.details(), &full_details());
 }
 
-// `build_db` always runs `push_schema`, which fails on a database that already has the
-// tables, so a restart against the same file cannot reconnect yet.
 #[tokio::test]
-#[ignore = "known gap: build_db's push_schema fails on an existing schema"]
 async fn data_survives_reopening_the_database() {
     let dir = TempDir::new().unwrap();
     let uri = uri(&dir);

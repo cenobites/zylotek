@@ -27,7 +27,7 @@ zylotek-sync = { path = "crates/zylotek-sync" }
 zylotek-application = { path = "crates/zylotek-application" }
 zylotek-infrastructure = { path = "crates/zylotek-infrastructure" }
 log = "0.4.34"
-clap = { version = "4.6.7", features = ["derive"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
 futures = "0.3.34"
 trait-variant = "0.1.3"
 async-trait = "0.1.92"

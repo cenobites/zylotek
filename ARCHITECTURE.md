@@ -9,9 +9,9 @@ deliberately left out; search for the named types instead.
 
 Zylotek collects data about Brazilian wood species and serves it. There are two flows:
 
-1. **Ingest (prototype).** `zylotek-sync` fetches the LPF catalogue pages over HTTP and
-   translates the HTML into domain value objects (`ScrapedWood`). It logs them; it does
-   not persist anything yet.
+1. **Ingest.** `zylotek-sync` turns the LPF data into domain value objects (`ScrapedWood`),
+   either by parsing the open-data CSV (the default) or by fetching the catalogue pages over
+   HTTP. The CLI then stores them through the `ImportWoods` use case.
 2. **Serve.** `zylotek-api` exposes CRUD on `/api/v1/woods`. Requests are validated by the
    domain's value objects, stored through Toasty (SQLite), and every change emits a
    `WoodEvent` that an asynchronous handler consumes.
@@ -66,6 +66,10 @@ Each holds its collaborators as trait objects (`Arc<dyn WoodRepository>`,
 `Arc<dyn EventPublisher<WoodEvent>>`). Commands carry raw names plus an already-built
 `WoodDetails`; the use case turns the names into value objects.
 
+`ImportWoods` creates a batch of woods through `CreateWood`: a scientific name that is
+already registered is skipped (so importing twice is harmless) and any other failure is
+recorded without stopping the batch. It returns an `ImportReport`.
+
 `WoodFacade` is the entry point adapters call. `WoodEventHandler` handles every
 `WoodEvent`; it currently only logs. All use cases return `WoodUseCaseError`
 (`NotFound`, `Domain`, `Persistence`, `Event`).
@@ -105,14 +109,23 @@ each extracts text by label or table header and returns domain value objects.
 Portuguese labels and ratings (`"muito bom"`, `"não trinca"`) are mapped to domain enums
 here and nowhere else.
 
+`open_data.rs` parses the open-data CSV the same way: it maps the Portuguese columns to
+domain value objects, converts SI units (MPa, N) to the kgf-based units, and reports rows
+it cannot parse in `OpenData::rejected` instead of failing the file. Each CSV row is a test
+lot, so one scientific name can occur on several rows; deduplicating is left to
+`ImportWoods`, not the parser. Imported woods carry the row's `id_especie` as
+`SourceReference::species_id` and the dataset page as their URL.
+
 **Architecture invariant:** sync depends on `zylotek-domain` only, never on
-infrastructure or application. Storing scraped woods is future work: it should go
-through `CreateWood`, using `SourceReference::species_id` to avoid duplicates.
+infrastructure or application. Storing woods goes through `CreateWood`, via `ImportWoods`.
 
 ### `crates/zylotek-cli`
 
-A thin clap binary: `db setup|migrate` delegate to `zylotek_infrastructure::persistence::cli`;
-`sync run` constructs and runs the synchronizer. No logic lives here.
+A thin clap binary: `db setup|migrate` delegate to `zylotek_infrastructure::persistence::cli`.
+`sync run [--source file|web] [--file <csv>]` gets the woods from the CSV parser or the
+scraper and stores them with `ImportWoods`, so the CLI is a second composition root next to
+`zylotek-api`. The global `--database-url` (env `ZYLOTEK_DATABASE_URL`) picks the database
+for `sync` and `api`.
 
 ### `crates/zylotek-contracts`, root `src/main.rs`
 
@@ -151,14 +164,17 @@ persistence succeeds. Delivery is in-process and best-effort: `publish` fails wi
 than block publishers. Because publishing happens after the write, a publish failure
 returns an error to the caller even though the change was stored.
 
-**Persistence and migrations.** `build_db` calls `push_schema()` on every start, and the
-database URI is hard-coded to `sqlite::memory:` in the API and the CLI helper, so
-migrations are not yet meaningful at runtime. Uniqueness of `scientific_name` is checked
+**Persistence and migrations.** `build_db` pushes the schema only when the tables are
+missing, so it can reopen an existing database file. The database defaults to
+`sqlite:zylotek.db` and is set with `--database-url` / `ZYLOTEK_DATABASE_URL`. The schema is
+still created from the models, not by applying the generated migrations (the `db` commands
+use a throwaway in-memory database), so migrations are not yet meaningful at runtime. Uniqueness of `scientific_name` is checked
 by the domain service and backed by a unique index. The SQLite repository is still named
 `PostgresWoodRepository`.
 
-**Configuration & dependencies.** There is no runtime configuration layer yet (port,
-database URI and scraper URL are constants). Dependency versions live only in the root
+**Configuration & dependencies.** There is no configuration file yet: the
+database URL is a CLI option or environment variable, while the port and scraper URL are
+constants. Dependency versions live only in the root
 `[workspace.dependencies]`. Toasty 0.11 requires rustc 1.95+.
 
 **Testing & quality gates.** See `TESTING.md`: unit tests beside the code (100% line

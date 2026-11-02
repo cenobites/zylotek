@@ -3,9 +3,12 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use zylotek_sync::parse_wood;
+use zylotek_sync::{parse_open_data, parse_wood};
 
 const SPECIES_HTML: &str = include_str!("../tests/fixtures/species.html");
+const OPEN_DATA_CSV: &[u8] = include_bytes!(
+    "../../../toasty/fixtures/dados_abertos_banco_de_dados_de_madeiras_brasileiras_lpfsfb.csv"
+);
 const URL: &str =
     "https://lpf.florestal.gov.br/pt-br/madeiras-brasileiras/especie?especieestudadaid=42";
 
@@ -35,5 +38,16 @@ fn parse(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, parse);
+fn open_data(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parse_open_data");
+    group.throughput(Throughput::Bytes(OPEN_DATA_CSV.len() as u64));
+
+    // The whole export: 269 rows, 67 columns, every unit converted.
+    group.bench_function("full_export", |b| {
+        b.iter(|| parse_open_data(black_box(OPEN_DATA_CSV)).unwrap())
+    });
+    group.finish();
+}
+
+criterion_group!(benches, parse, open_data);
 criterion_main!(benches);

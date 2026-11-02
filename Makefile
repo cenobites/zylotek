@@ -96,7 +96,7 @@ bench-check:
 # Fuzzing (cargo-fuzz, nightly)
 # =============================================================================
 
-FUZZ_TARGETS := parse_wood wood_request_json value_objects http_requests
+FUZZ_TARGETS := parse_wood parse_open_data wood_request_json value_objects http_requests
 FUZZ_TIME ?= 60
 
 fuzz-build:
@@ -106,6 +106,7 @@ fuzz-build:
 fuzz:
 	@for target in $(FUZZ_TARGETS); do \
 		echo "==> fuzzing $$target for $(FUZZ_TIME)s"; \
+		mkdir -p fuzz/corpus/$$target; \
 		(cd fuzz && cargo +nightly fuzz run $$target corpus/$$target $$(test -d seeds/$$target && echo seeds/$$target) -- -max_total_time=$(FUZZ_TIME) -rss_limit_mb=4096) || exit 1; \
 	done
 

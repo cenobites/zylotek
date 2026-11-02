@@ -54,7 +54,8 @@ pub struct WoodImages {
     pub wood: Option<WebUrl>,
 }
 
-/// Where the data was collected from: the LPF species page.
+/// Where the data was collected from: the LPF species page when scraped, or the dataset
+/// page when imported from the open-data CSV (which has the species id but no page of its own).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceReference {
     pub species_id: u64,
