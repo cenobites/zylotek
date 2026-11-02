@@ -92,6 +92,18 @@ pub struct AskResponse {
     pub catalogue_size: usize,
 }
 
+/// The server-sent events of `POST /v1/ask/stream`, in the order they come: one `ANSWER`
+/// (an `AskResponse` whose explanation is still `null`), any number of `TOKEN`s (each a JSON
+/// string, the next piece of the explanation), and a closing `DONE`. A `FAILED` (a JSON
+/// string saying why) just before `DONE` means the model stopped midway and the explanation
+/// is incomplete.
+pub mod events {
+    pub const ANSWER: &str = "answer";
+    pub const TOKEN: &str = "token";
+    pub const FAILED: &str = "failed";
+    pub const DONE: &str = "done";
+}
+
 /// Body of `GET /health`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssistantHealth {

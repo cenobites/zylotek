@@ -89,6 +89,20 @@ pub async fn model() -> MockServer {
         .await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
+        .and(body_string_contains(r#""stream":true"#))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(format!(
+                    "{}{}data: [DONE]\n\n",
+                    delta("The hardest "),
+                    delta("wood suits a table.")
+                )),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
         .respond_with(completion("The hardest wood suits a table."))
         .mount(&server)
         .await;
@@ -216,4 +230,88 @@ pub fn ids_in(html: &str) -> Vec<String> {
         .filter_map(|rest| rest.split('"').next())
         .map(str::to_owned)
         .collect()
+}
+
+fn delta(text: &str) -> String {
+    format!(
+        "data: {}\n\n",
+        json!({"choices": [{"delta": {"content": text}}]})
+    )
+}
+
+fn completion(content: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200)
+        .set_body_json(json!({"choices": [{"message": {"content": content}}]}))
+}
+
+/// A model server that writes its explanation in two halves with `pause` between them, so a
+/// test can tell whether the website forwards the first half before the second exists.
+pub async fn slow_model(pause: Duration) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 4096];
+                loop {
+                    let read = socket.read(&mut buffer).await.unwrap_or(0);
+                    request.extend_from_slice(&buffer[..read]);
+                    if read == 0 || request_is_complete(&request) {
+                        break;
+                    }
+                }
+                let request = String::from_utf8_lossy(&request).into_owned();
+
+                if request.contains("response_format") || !request.contains(r#""stream":true"#) {
+                    let body = json!({"choices": [{"message": {"content": NEED}}]}).to_string();
+                    let reply = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    socket.write_all(reply.as_bytes()).await.unwrap();
+                    return;
+                }
+                let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n";
+                socket.write_all(head.as_bytes()).await.unwrap();
+                for (n, part) in [
+                    delta("The hardest "),
+                    format!("{}data: [DONE]\n\n", delta("wood suits a table.")),
+                ]
+                .iter()
+                .enumerate()
+                {
+                    if n == 1 {
+                        tokio::time::sleep(pause).await;
+                    }
+                    let chunk = format!("{:x}\r\n{part}\r\n", part.len());
+                    socket.write_all(chunk.as_bytes()).await.unwrap();
+                    socket.flush().await.unwrap();
+                }
+                socket.write_all(b"0\r\n\r\n").await.unwrap();
+            });
+        }
+    });
+
+    url
+}
+
+fn request_is_complete(request: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(request);
+    let Some((head, body)) = text.split_once("\r\n\r\n") else {
+        return false;
+    };
+    let length = head
+        .lines()
+        .find_map(|line| {
+            line.to_lowercase()
+                .strip_prefix("content-length:")
+                .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+        })
+        .unwrap_or(0);
+
+    body.len() >= length
 }

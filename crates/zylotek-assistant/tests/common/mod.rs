@@ -81,11 +81,33 @@ pub async fn model() -> MockServer {
         .await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
+        .and(body_string_contains(r#""stream":true"#))
+        .respond_with(streamed(&["The hardest ", "wood suits ", "a table."]))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
         .respond_with(completion("The hardest wood suits a table."))
         .mount(&server)
         .await;
 
     server
+}
+
+/// A streamed chat completion, one server-sent event per piece.
+pub fn streamed(pieces: &[&str]) -> ResponseTemplate {
+    let mut body = String::new();
+    for piece in pieces {
+        body += &format!(
+            "data: {}\n\n",
+            json!({"choices": [{"delta": {"content": piece}}]})
+        );
+    }
+    body += "data: [DONE]\n\n";
+
+    ResponseTemplate::new(200)
+        .insert_header("content-type", "text/event-stream")
+        .set_body_string(body)
 }
 
 pub fn completion(content: &str) -> ResponseTemplate {
@@ -177,4 +199,40 @@ pub async fn ask(assistant: &Running, token: Option<&str>, question: &str) -> (u
     let text = response.text().await.unwrap();
 
     (status, serde_json::from_str(&text).unwrap_or(Value::Null))
+}
+
+/// `(event, data)` pairs from `POST /v1/ask/stream`, plus the HTTP status.
+pub async fn ask_stream(
+    assistant: &Running,
+    token: Option<&str>,
+    question: &str,
+) -> (u16, Vec<(String, String)>) {
+    let mut request = reqwest::Client::new()
+        .post(format!("{}/v1/ask/stream", assistant.url))
+        .header("content-type", "application/json")
+        .body(json!({"question": question}).to_string());
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().await.unwrap();
+    let status = response.status().as_u16();
+    let text = response.text().await.unwrap();
+    let events = text
+        .split("\n\n")
+        .filter(|block| block.contains("event:"))
+        .map(|block| {
+            let field = |name: &str| {
+                block
+                    .lines()
+                    .find_map(|line| line.strip_prefix(name))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned()
+            };
+
+            (field("event:"), field("data:"))
+        })
+        .collect();
+
+    (status, events)
 }

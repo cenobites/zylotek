@@ -10,7 +10,7 @@ use zylotek_contracts::assistant::{AskResponse, Recommendation};
 use crate::{
     catalogue::Catalogue,
     error::{AskError, MAX_QUESTION_CHARS},
-    llm::{Message, Model},
+    llm::{Message, Model, TextStream},
     requirements::{self, Requirements},
 };
 
@@ -37,6 +37,38 @@ impl Assistant {
     }
 
     pub async fn ask(&self, question: &str) -> Result<AskResponse, AskError> {
+        let prepared = self.prepare(question).await?;
+        let explanation = match prepared.explanation_messages() {
+            Some(messages) => self.explain(&messages).await,
+            None => None,
+        };
+
+        Ok(prepared.into_answer(explanation))
+    }
+
+    /// Like `ask`, but the explanation is handed back as a stream so a caller can show it as
+    /// it is written. The ranking is already in `answer` when this returns.
+    pub async fn ask_stream(&self, question: &str) -> Result<StreamedAnswer, AskError> {
+        let prepared = self.prepare(question).await?;
+        let explanation = match prepared.explanation_messages() {
+            Some(messages) => match self.model.stream(&messages).await {
+                Ok(stream) => Some(stream),
+                Err(error) => {
+                    tracing::warn!(%error, "the model could not start explaining the ranking");
+                    None
+                }
+            },
+            None => None,
+        };
+
+        Ok(StreamedAnswer {
+            answer: prepared.into_answer(None),
+            explanation,
+        })
+    }
+
+    /// Validates the question, reads the need out of it and ranks the catalogue.
+    async fn prepare(&self, question: &str) -> Result<Prepared, AskError> {
         let question = question.trim();
         if question.is_empty() {
             return Err(AskError::EmptyQuestion);
@@ -52,13 +84,11 @@ impl Assistant {
 
         let requirements = self.understand(question).await?;
         let recommendations = snapshot.ranker.rank(&requirements, self.top);
-        let explanation = self.explain(question, &recommendations).await;
 
-        Ok(AskResponse {
-            summary: requirements.summary,
-            criteria: requirements.criteria,
+        Ok(Prepared {
+            question: question.to_owned(),
+            requirements,
             recommendations,
-            explanation,
             catalogue_size: snapshot.ranker.len(),
         })
     }
@@ -77,12 +107,41 @@ impl Assistant {
     }
 
     /// A failure here is logged and dropped: the ranking is the answer, the words are a courtesy.
-    async fn explain(&self, question: &str, recommendations: &[Recommendation]) -> Option<String> {
-        if recommendations.is_empty() {
+    async fn explain(&self, messages: &[Message]) -> Option<String> {
+        match self.model.complete(messages, None).await {
+            Ok(text) => Some(text),
+            Err(error) => {
+                tracing::warn!(%error, "the model could not explain the ranking");
+                None
+            }
+        }
+    }
+}
+
+/// An answer whose explanation is still being written.
+pub struct StreamedAnswer {
+    /// Everything but the explanation, which is `None` here.
+    pub answer: AskResponse,
+    /// `None` when there is nothing to explain or the model could not start.
+    pub explanation: Option<TextStream>,
+}
+
+struct Prepared {
+    question: String,
+    requirements: Requirements,
+    recommendations: Vec<Recommendation>,
+    catalogue_size: usize,
+}
+
+impl Prepared {
+    /// What to ask the model to explain, if there is anything to explain.
+    fn explanation_messages(&self) -> Option<[Message; 2]> {
+        if self.recommendations.is_empty() {
             return None;
         }
-        let facts = json!(recommendations);
-        let messages = [
+        let facts = json!(self.recommendations);
+
+        Some([
             Message::system(
                 "You advise on choosing wood. Using only the facts given, in the language of the \
                  question, say in at most 120 words why the top woods suit the need and what to \
@@ -90,16 +149,19 @@ impl Assistant {
                  database. Do not mention woods that are not listed and do not invent figures.",
             ),
             Message::user(format!(
-                "Question: {question}\n\nWoods, best first:\n{facts}"
+                "Question: {}\n\nWoods, best first:\n{facts}",
+                self.question
             )),
-        ];
+        ])
+    }
 
-        match self.model.complete(&messages, None).await {
-            Ok(text) => Some(text),
-            Err(error) => {
-                tracing::warn!(%error, "the model could not explain the ranking");
-                None
-            }
+    fn into_answer(self, explanation: Option<String>) -> AskResponse {
+        AskResponse {
+            summary: self.requirements.summary,
+            criteria: self.requirements.criteria,
+            recommendations: self.recommendations,
+            explanation,
+            catalogue_size: self.catalogue_size,
         }
     }
 }
@@ -150,6 +212,31 @@ pub mod testing {
                 .unwrap()
                 .pop()
                 .unwrap_or(Err(ModelError::Empty))
+        }
+
+        /// Replays the next reply word by word. A reply holding `<<cut>>` ends there with
+        /// an error item, as if the connection had dropped.
+        async fn stream(&self, messages: &[Message]) -> Result<TextStream, ModelError> {
+            self.calls.lock().unwrap().push((messages.to_vec(), false));
+            let reply = self
+                .replies
+                .lock()
+                .unwrap()
+                .pop()
+                .unwrap_or(Err(ModelError::Empty))?;
+            let (text, cut) = match reply.split_once("<<cut>>") {
+                Some((before, _)) => (before.to_owned(), true),
+                None => (reply, false),
+            };
+            let mut items: Vec<Result<String, ModelError>> = text
+                .split_inclusive(' ')
+                .map(|word| Ok(word.to_owned()))
+                .collect();
+            if cut {
+                items.push(Err(ModelError::Empty));
+            }
+
+            Ok(Box::pin(futures::stream::iter(items)))
         }
     }
 }
@@ -296,5 +383,75 @@ mod tests {
 
         assert!(matches!(down, AskError::Model(ModelError::Transport(_))));
         assert!(matches!(nonsense, AskError::Understanding(_)));
+    }
+
+    async fn written(stream: TextStream) -> String {
+        use futures::StreamExt;
+
+        stream
+            .map(Result::unwrap)
+            .collect::<Vec<_>>()
+            .await
+            .concat()
+    }
+
+    #[tokio::test]
+    async fn a_streamed_answer_has_the_ranking_at_once_and_the_words_as_they_come() {
+        let model = ScriptedModel::new(vec![
+            Ok(NEED.into()),
+            Ok("Hard is the hardest wood.".into()),
+        ]);
+
+        let streamed = assistant(model.clone(), 2)
+            .ask_stream(" a hard table ")
+            .await
+            .unwrap();
+
+        assert_eq!(streamed.answer.explanation, None);
+        assert_eq!(streamed.answer.recommendations[0].name, "Hard");
+        assert_eq!(streamed.answer.catalogue_size, 3);
+        assert_eq!(
+            written(streamed.explanation.unwrap()).await,
+            "Hard is the hardest wood."
+        );
+        let calls = model.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert!(calls[1].0[1].content.contains("a hard table"));
+    }
+
+    #[tokio::test]
+    async fn nothing_to_explain_or_a_model_that_cannot_start_leaves_no_stream() {
+        let none = r#"{"priorities": [{"property": "lightness", "weight": 2}]}"#;
+        let nothing = ScriptedModel::new(vec![Ok(none.into())]);
+        let busy = ScriptedModel::new(vec![Ok(NEED.into()), Err(ModelError::Empty)]);
+
+        let nothing = assistant(nothing, 5)
+            .ask_stream("a light box")
+            .await
+            .unwrap();
+        let busy = assistant(busy, 5).ask_stream("a hard table").await.unwrap();
+
+        assert!(nothing.answer.recommendations.is_empty() && nothing.explanation.is_none());
+        assert_eq!(busy.answer.recommendations.len(), 3, "the ranking survives");
+        assert!(busy.explanation.is_none());
+    }
+
+    #[tokio::test]
+    async fn streaming_refuses_the_same_questions_asking_does() {
+        let model = ScriptedModel::new(vec![]);
+        let unsynced = Assistant::new(model.clone(), Arc::new(Catalogue::new()), 5);
+
+        assert!(matches!(
+            assistant(model.clone(), 5).ask_stream(" ").await,
+            Err(AskError::EmptyQuestion)
+        ));
+        assert!(matches!(
+            unsynced.ask_stream("x").await,
+            Err(AskError::EmptyCatalogue)
+        ));
+        assert!(matches!(
+            assistant(model, 5).ask_stream("x").await,
+            Err(AskError::Model(_))
+        ));
     }
 }

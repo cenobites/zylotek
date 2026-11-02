@@ -162,11 +162,15 @@ three steps (`assistant.rs`):
    counting as zero. The model never chooses a wood, so it cannot invent one and the same
    question always yields the same list.
 3. **Explain.** The model writes a short answer from the ranked facts. If this fails, the
-   ranking is returned without it.
+   ranking is returned without it. `ask_stream` hands the explanation back as a stream so a
+   caller can show it as it is written; the ranking is already complete by then.
 
 `llm.rs` hides the model behind a `Model` trait; `OpenAiCompatible` speaks the chat-completions
 protocol of llama.cpp's `llama-server` (also vLLM, Ollama, LM Studio). `http.rs` serves
-`GET /health` and `POST /v1/ask`, the latter behind an optional shared bearer token.
+`GET /health`, `POST /v1/ask` (one JSON answer) and `POST /v1/ask/stream` (server-sent events:
+`answer`, then `token`s, then `done`; see `contracts::assistant::events`), the last two behind
+an optional shared bearer token. `llm.rs` streams from the model by reading its SSE body
+line by line, whatever way the network cut it.
 `server.rs` wires it up and is outside the unit gate. The request and response types live in
 `zylotek-contracts::assistant` for the web app.
 
@@ -176,7 +180,11 @@ The website, on its own port (3000). Pages are rendered on the server with Askam
 (`templates/`) and need no script: the question is a plain form POST, the comparison a plain
 GET with repeated `id` parameters. It reads the catalogue from `zylotek-api` and asks
 `zylotek-assistant` for recommendations through `clients.rs`, both using the contract types, so
-it never touches the database or the model. `view.rs` turns contract types into display
+it never touches the database or the model. Asking is streamed: the page's top (understanding,
+criteria, ranked cards) is sent as soon as the ranking exists, the explanation follows as the
+model writes it, and the closing markup comes last, as one chunked HTML response with no
+script; if the explanation breaks, the page ends with a note instead of an error.
+`view.rs` turns contract types into display
 strings (templates hold no logic), `pages.rs` has the routes. A backend failure becomes a
 friendly error page; the technical detail goes to the log only. Askama escapes every value,
 including the model's text, and a header middleware sets a CSP that forbids scripts. Wood ids

@@ -6,15 +6,18 @@ use std::sync::Arc;
 use askama::Template;
 use axum::{
     Form, Router,
+    body::Body,
     extract::{Path, Query, RawQuery, State},
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
+use futures::Stream;
 use serde::Deserialize;
+use std::convert::Infallible;
 
 use crate::{
-    clients::{ApiClient, AssistantClient, is_id},
+    clients::{ApiClient, AssistantClient, LiveAnswer, Piece, is_id},
     error::BackendError,
     view::{self, CardView, Fact, WoodRow, WoodView},
 };
@@ -73,16 +76,23 @@ struct HomePage {
     error: Option<String>,
 }
 
+/// Everything up to the opening of the box the explanation streams into.
 #[derive(Template)]
-#[template(path = "answer.html")]
-struct AnswerPage {
+#[template(path = "answer_top.html")]
+struct AnswerTop {
     question: String,
     summary: String,
     criteria: Vec<(&'static str, u8)>,
     cards: Vec<CardView>,
-    explanation: Option<String>,
-    catalogue_size: usize,
     can_compare: bool,
+}
+
+/// What closes the page once the explanation is done.
+#[derive(Template)]
+#[template(path = "answer_bottom.html")]
+struct AnswerBottom {
+    has_explanation_box: bool,
+    catalogue_size: usize,
 }
 
 #[derive(Template)]
@@ -226,33 +236,106 @@ struct AskForm {
 async fn ask(
     State(state): State<AppState>,
     Form(form): Form<AskForm>,
-) -> Result<Html<String>, PageError> {
+) -> Result<Response, PageError> {
     let question = form.question.trim().to_owned();
     if question.is_empty() || question.chars().count() > MAX_QUESTION_CHARS {
         // Back to the form with the text kept, rather than an error page.
         let error = format!("Please write between 1 and {MAX_QUESTION_CHARS} characters.");
-        return render(HomePage {
+        return Ok(render(HomePage {
             question: form.question,
             error: Some(error),
-        });
+        })?
+        .into_response());
     }
 
-    let answer = state.assistant.ask(&question).await?;
-    let cards: Vec<CardView> = answer.recommendations.iter().map(view::card).collect();
-
-    render(AnswerPage {
+    // Wait only for the ranking. Anything that goes wrong before it is an ordinary error page;
+    // once the page has started, the explanation is a courtesy that may be cut short.
+    let live = state.assistant.ask_stream(&question).await?;
+    let cards: Vec<CardView> = live.answer.recommendations.iter().map(view::card).collect();
+    let has_explanation_box = !cards.is_empty();
+    let top = AnswerTop {
         question,
-        summary: answer.summary,
-        criteria: answer
+        summary: live.answer.summary.clone(),
+        criteria: live
+            .answer
             .criteria
             .iter()
             .map(|c| (view::label(c.property), c.weight))
             .collect(),
         can_compare: cards.len() >= MIN_COMPARE,
         cards,
-        explanation: answer.explanation,
-        catalogue_size: answer.catalogue_size,
-    })
+    }
+    .render()
+    .map_err(|error| PageError::Internal(error.to_string()))?;
+    let bottom = AnswerBottom {
+        has_explanation_box,
+        catalogue_size: live.answer.catalogue_size,
+    }
+    .render()
+    .map_err(|error| PageError::Internal(error.to_string()))?;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::HeaderName::from_static("x-accel-buffering"), "no"),
+        ],
+        Body::from_stream(page_stream(top, bottom, live)),
+    )
+        .into_response())
+}
+
+/// The page as it is sent: the top at once, then the explanation piece by piece, then the
+/// bottom. A broken explanation ends with a note instead of an error.
+fn page_stream(
+    top: String,
+    bottom: String,
+    live: LiveAnswer,
+) -> impl Stream<Item = Result<String, Infallible>> {
+    enum Stage {
+        Top(String),
+        Words,
+        Bottom,
+        Over,
+    }
+
+    futures::stream::unfold(
+        (Stage::Top(top), live, bottom),
+        |(stage, mut live, bottom)| async move {
+            let (chunk, next) = match stage {
+                Stage::Top(top) => (top, Stage::Words),
+                Stage::Words => match live.next_piece().await {
+                    Some(Piece::Text(text)) => (escape(&text), Stage::Words),
+                    Some(Piece::Cut) => (
+                        "\n<p class=\"err\">The explanation was cut short.</p>".to_owned(),
+                        Stage::Bottom,
+                    ),
+                    None => (String::new(), Stage::Bottom),
+                },
+                Stage::Bottom => (bottom.clone(), Stage::Over),
+                Stage::Over => return None,
+            };
+
+            Some((Ok(chunk), (next, live, bottom)))
+        },
+    )
+}
+
+/// HTML-escapes text that is written into the page by hand.
+pub fn escape(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            other => escaped.push(other),
+        }
+    }
+
+    escaped
 }
 
 #[derive(Deserialize)]
@@ -431,14 +514,35 @@ mod tests {
         (status, html)
     }
 
-    fn answer(recommendations: Value) -> ResponseTemplate {
-        ResponseTemplate::new(200).set_body_json(json!({
+    fn events(items: &[(&str, Value)]) -> ResponseTemplate {
+        let body: String = items
+            .iter()
+            .map(|(name, data)| format!("event: {name}\ndata: {data}\n\n"))
+            .collect();
+
+        ResponseTemplate::new(200)
+            .insert_header("content-type", "text/event-stream")
+            .set_body_string(body)
+    }
+
+    fn ranking(recommendations: Value) -> Value {
+        json!({
             "summary": "A big table",
             "criteria": [{"property": "stability", "weight": 3}, {"property": "hardness", "weight": 2}, {"property": "lightness", "weight": 1}],
             "recommendations": recommendations,
-            "explanation": "Cedro is steady <b>and</b> easy to work.",
+            "explanation": null,
             "catalogue_size": 225,
-        }))
+        })
+    }
+
+    /// A finished stream: the ranking, then the explanation in two pieces.
+    fn answer(recommendations: Value) -> ResponseTemplate {
+        events(&[
+            ("answer", ranking(recommendations)),
+            ("token", json!("Cedro is steady ")),
+            ("token", json!("<b>and</b> easy to work.")),
+            ("done", json!({})),
+        ])
     }
 
     fn recommendation(id: &str, name: &str) -> Value {
@@ -470,7 +574,7 @@ mod tests {
     async fn an_answer_lists_the_woods_with_reasons_and_escapes_everything() {
         let backends = Backends::start().await;
         Mock::given(method("POST"))
-            .and(path("/v1/ask"))
+            .and(path("/v1/ask/stream"))
             .respond_with(answer(json!([
                 recommendation("a", "Cedro"),
                 recommendation("b", "Ipê")
@@ -501,17 +605,20 @@ mod tests {
             !html.contains("<b>and</b>"),
             "the model's text is escaped too"
         );
+        assert!(html.contains("Cedro is steady &lt;b&gt;and&lt;/b&gt; easy to work."));
+        assert!(html.contains("<h2>In short</h2>"));
+        assert!(html.trim_end().ends_with("</html>"), "the page is complete");
     }
 
     #[tokio::test]
     async fn one_recommendation_cannot_be_compared_and_none_says_so() {
         let backends = Backends::start().await;
-        Mock::given(path("/v1/ask"))
+        Mock::given(path("/v1/ask/stream"))
             .and(wiremock::matchers::body_string_contains("one"))
             .respond_with(answer(json!([recommendation("a", "Cedro")])))
             .mount(&backends.assistant)
             .await;
-        Mock::given(path("/v1/ask"))
+        Mock::given(path("/v1/ask/stream"))
             .respond_with(answer(json!([])))
             .mount(&backends.assistant)
             .await;
@@ -547,7 +654,7 @@ mod tests {
     #[tokio::test]
     async fn assistant_trouble_becomes_a_friendly_page_without_internals() {
         let backends = Backends::start().await;
-        Mock::given(path("/v1/ask"))
+        Mock::given(path("/v1/ask/stream"))
             .and(wiremock::matchers::body_string_contains("starting"))
             .respond_with(
                 ResponseTemplate::new(503).set_body_json(
@@ -556,14 +663,14 @@ mod tests {
             )
             .mount(&backends.assistant)
             .await;
-        Mock::given(path("/v1/ask"))
+        Mock::given(path("/v1/ask/stream"))
             .and(wiremock::matchers::body_string_contains("rude"))
             .respond_with(ResponseTemplate::new(400).set_body_json(
                 json!({"code": "INVALID_QUESTION", "message": "the question is empty"}),
             ))
             .mount(&backends.assistant)
             .await;
-        Mock::given(path("/v1/ask"))
+        Mock::given(path("/v1/ask/stream"))
             .respond_with(ResponseTemplate::new(502).set_body_json(
                 json!({"code": "MODEL_UNAVAILABLE", "message": "http://gpu-box:8081 refused"}),
             ))
@@ -791,5 +898,78 @@ mod tests {
                 .status(),
             StatusCode::NOT_FOUND
         );
+    }
+
+    async fn raw_answer(
+        app: &Router,
+        question: &str,
+    ) -> (StatusCode, axum::http::HeaderMap, String) {
+        let body: String = form_urlencoded::Serializer::new(String::new())
+            .append_pair("question", question)
+            .finish();
+        let request = Request::post("/ask")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+        let (status, html, headers) = send(app, request).await;
+
+        (status, headers, html)
+    }
+
+    #[tokio::test]
+    async fn the_answer_page_is_html_that_must_not_be_cached_or_buffered() {
+        let backends = Backends::start().await;
+        Mock::given(path("/v1/ask/stream"))
+            .respond_with(answer(json!([recommendation("a", "Cedro")])))
+            .mount(&backends.assistant)
+            .await;
+
+        let (status, headers, _) = raw_answer(&backends.app(), "a table").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CONTENT_TYPE], "text/html; charset=utf-8");
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        assert_eq!(headers["x-accel-buffering"], "no");
+        assert!(
+            headers.contains_key("content-security-policy"),
+            "streamed pages are covered too"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cut_explanation_ends_with_a_note_and_a_complete_page() {
+        let backends = Backends::start().await;
+        Mock::given(path("/v1/ask/stream"))
+            .respond_with(events(&[
+                (
+                    "answer",
+                    ranking(json!([
+                        recommendation("a", "Cedro"),
+                        recommendation("b", "Ipê")
+                    ])),
+                ),
+                ("token", json!("Cedro is ")),
+                ("failed", json!("the explanation was cut short")),
+                ("done", json!({})),
+            ]))
+            .mount(&backends.assistant)
+            .await;
+
+        let (status, _, html) = raw_answer(&backends.app(), "a table").await;
+
+        assert_eq!(status, StatusCode::OK, "the ranking was already shown");
+        assert!(html.contains("Cedro is "));
+        assert!(html.contains("The explanation was cut short."));
+        assert!(html.contains("Ranked among 225 woods"));
+        assert!(html.trim_end().ends_with("</html>"));
+    }
+
+    #[test]
+    fn text_written_by_hand_is_escaped() {
+        assert_eq!(
+            escape("a & b < c > d \" e ' f"),
+            "a &amp; b &lt; c &gt; d &quot; e &#39; f"
+        );
+        assert_eq!(escape("plain café"), "plain café");
     }
 }

@@ -5,7 +5,7 @@
 mod common;
 
 use assert_cmd::Command;
-use common::{NEED, api_with, ask, completion, health, model, spawn, until_synced};
+use common::{NEED, api_with, ask, ask_stream, completion, health, model, spawn, until_synced};
 use predicates::prelude::*;
 use serde_json::json;
 use wiremock::{
@@ -39,6 +39,29 @@ async fn a_question_is_answered_from_the_catalogue_pulled_from_the_api() {
         json!({"property": "hardness", "value": 1500.0, "fit": answer["recommendations"][0]["reasons"][0]["fit"]})
     );
     assert_eq!(answer["explanation"], "The hardest wood suits a table.");
+}
+
+#[tokio::test]
+async fn the_answer_can_be_streamed_ranking_first_then_the_words() {
+    let api = api_with(&WOODS).await;
+    let model = model().await;
+    let assistant = spawn(&api.url, &model.uri(), &["--token", "s3cret"]);
+    until_synced(&assistant, 3).await;
+
+    let (status, events) = ask_stream(&assistant, Some("s3cret"), "a hard table").await;
+    let (anonymous, _) = ask_stream(&assistant, None, "a hard table").await;
+
+    assert_eq!((status, anonymous), (200, 401));
+    let names: Vec<_> = events.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["answer", "token", "token", "token", "done"]);
+    let answer: serde_json::Value = serde_json::from_str(&events[0].1).unwrap();
+    assert_eq!(answer["recommendations"][0]["name"], "Hard");
+    assert_eq!(answer["explanation"], serde_json::Value::Null);
+    let words: String = events[1..4]
+        .iter()
+        .map(|(_, data)| serde_json::from_str::<String>(data).unwrap())
+        .collect();
+    assert_eq!(words, "The hardest wood suits a table.");
 }
 
 #[tokio::test]

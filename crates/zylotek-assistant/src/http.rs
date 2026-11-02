@@ -8,12 +8,16 @@ use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, FromRequestParts, State, rejection::JsonRejection},
     http::{HeaderValue, StatusCode, header, request::Parts},
-    response::{IntoResponse, Response},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
     routing::{get, post},
 };
+use futures::{Stream, StreamExt, stream};
 use zylotek_contracts::{
     ErrorResponse,
-    assistant::{AskRequest, AskResponse, AssistantHealth},
+    assistant::{AskRequest, AskResponse, AssistantHealth, events},
 };
 
 use crate::{assistant::Assistant, error::AskError};
@@ -36,6 +40,7 @@ pub fn router(assistant: Arc<Assistant>, token: Option<String>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/v1/ask", post(ask))
+        .route("/v1/ask/stream", post(ask_stream))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
 }
@@ -62,6 +67,45 @@ async fn ask(
     })?;
 
     Ok(Json(state.assistant.ask(&request.question).await?))
+}
+
+/// Same question and answer, delivered as server-sent events: the ranking first, then the
+/// explanation as the model writes it (see `contracts::assistant::events`). Errors before the
+/// ranking is ready are ordinary JSON errors; a failure after that is a `failed` event.
+async fn ask_stream(
+    _authorized: Authorized,
+    State(state): State<AppState>,
+    body: Result<Json<AskRequest>, JsonRejection>,
+) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, ApiError> {
+    let Json(request) = body.map_err(|rejection| ApiError {
+        status: rejection.status(),
+        code: "BAD_REQUEST",
+        message: rejection.body_text(),
+    })?;
+    let streamed = state.assistant.ask_stream(&request.question).await?;
+
+    let first = stream::once(async move { event(events::ANSWER, &streamed.answer) });
+    let tokens = stream::iter(streamed.explanation)
+        .flatten()
+        .map(|piece| match piece {
+            Ok(text) => event(events::TOKEN, &text),
+            Err(error) => {
+                tracing::warn!(%error, "the explanation stopped midway");
+                event(events::FAILED, "the explanation was cut short")
+            }
+        });
+    let done = stream::once(async { event(events::DONE, &serde_json::json!({})) });
+
+    Ok(Sse::new(first.chain(tokens).chain(done)).keep_alive(KeepAlive::default()))
+}
+
+fn event<T: serde::Serialize + ?Sized>(
+    name: &str,
+    data: &T,
+) -> Result<Event, std::convert::Infallible> {
+    Ok(Event::default()
+        .event(name)
+        .data(serde_json::to_string(data).expect("events serialize")))
 }
 
 /// Proof that the request carried the right bearer token. It is the first extractor of the
@@ -340,5 +384,133 @@ mod tests {
         assert!(!same(b"abc", b"abd"));
         assert!(!same(b"abc", b"abcd"));
         assert!(!same(b"", b"a"));
+    }
+
+    /// `(event, data)` pairs of a server-sent-events body.
+    fn events_of(body: &str) -> Vec<(String, String)> {
+        body.split("\n\n")
+            .filter(|block| block.contains("event:"))
+            .map(|block| {
+                let field = |name: &str| {
+                    block
+                        .lines()
+                        .find_map(|line| line.strip_prefix(name))
+                        .unwrap_or_default()
+                        .trim()
+                        .to_owned()
+                };
+
+                (field("event:"), field("data:"))
+            })
+            .collect()
+    }
+
+    async fn stream_text(
+        app: &Router,
+        body: &str,
+        authorization: Option<&str>,
+    ) -> (StatusCode, String, axum::http::HeaderMap) {
+        let mut request = Request::builder()
+            .method(Method::POST)
+            .uri("/v1/ask/stream")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(authorization) = authorization {
+            request = request.header(header::AUTHORIZATION, authorization);
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::from(body.to_owned())).unwrap())
+            .await
+            .unwrap();
+        let (parts, body) = response.into_parts();
+        let bytes = body.collect().await.unwrap().to_bytes();
+
+        (
+            parts.status,
+            String::from_utf8(bytes.to_vec()).unwrap(),
+            parts.headers,
+        )
+    }
+
+    #[tokio::test]
+    async fn the_stream_sends_the_ranking_then_the_words_then_done() {
+        let app = app(
+            vec![Ok(NEED.into()), Ok("Hard wins easily.".into())],
+            None,
+            true,
+        );
+
+        let (status, body, headers) = stream_text(&app, &question("a hard table"), None).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .starts_with("text/event-stream")
+        );
+        let events = events_of(&body);
+        let names: Vec<_> = events.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["answer", "token", "token", "token", "done"]);
+        let answer: Value = serde_json::from_str(&events[0].1).unwrap();
+        assert_eq!(answer["recommendations"][0]["name"], "Hard");
+        assert_eq!(answer["explanation"], Value::Null);
+        let words: String = events[1..4]
+            .iter()
+            .map(|(_, data)| serde_json::from_str::<String>(data).unwrap())
+            .collect();
+        assert_eq!(words, "Hard wins easily.");
+    }
+
+    #[tokio::test]
+    async fn no_explanation_means_the_ranking_and_done() {
+        let need = r#"{"priorities": [{"property": "lightness", "weight": 2}]}"#;
+        let app = app(vec![Ok(need.into())], None, true);
+
+        let (_, body, _) = stream_text(&app, &question("a light box"), None).await;
+
+        let names: Vec<_> = events_of(&body).into_iter().map(|(name, _)| name).collect();
+        assert_eq!(names, ["answer", "done"]);
+    }
+
+    #[tokio::test]
+    async fn a_model_that_stops_midway_is_reported_inside_the_stream() {
+        let app = app(
+            vec![Ok(NEED.into()), Ok("Hard is <<cut>>".into())],
+            None,
+            true,
+        );
+
+        let (status, body, _) = stream_text(&app, &question("a hard table"), None).await;
+
+        assert_eq!(status, StatusCode::OK, "the ranking was already sent");
+        let events = events_of(&body);
+        let names: Vec<_> = events.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["answer", "token", "token", "failed", "done"]);
+        assert!(events[3].1.contains("cut short"));
+    }
+
+    #[tokio::test]
+    async fn the_stream_endpoint_has_the_same_guards_and_errors_as_ask() {
+        let secured = app(vec![], Some("s3cret"), true);
+        let unsynced = app(vec![], None, false);
+        let rude = app(vec![Err(ModelError::Transport("down".into()))], None, true);
+
+        let (anonymous, _, _) = stream_text(&secured, &question("x"), None).await;
+        let (wrong, _, _) = stream_text(&secured, &question("x"), Some("Bearer nope")).await;
+        let (garbage, garbage_body, _) = stream_text(&app(vec![], None, true), "nope", None).await;
+        let (blank, blank_body, _) =
+            stream_text(&app(vec![], None, true), &question(" "), None).await;
+        let (not_ready, _, _) = stream_text(&unsynced, &question("x"), None).await;
+        let (down, down_body, _) = stream_text(&rude, &question("x"), None).await;
+
+        assert_eq!(
+            (anonymous, wrong),
+            (StatusCode::UNAUTHORIZED, StatusCode::UNAUTHORIZED)
+        );
+        assert!(garbage.is_client_error() && garbage_body.contains("BAD_REQUEST"));
+        assert!(blank == StatusCode::BAD_REQUEST && blank_body.contains("INVALID_QUESTION"));
+        assert_eq!(not_ready, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(down == StatusCode::BAD_GATEWAY && down_body.contains("MODEL_UNAVAILABLE"));
     }
 }

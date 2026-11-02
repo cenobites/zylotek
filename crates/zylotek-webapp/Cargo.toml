@@ -13,6 +13,7 @@ askama = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }
 form_urlencoded = { workspace = true }
+futures = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

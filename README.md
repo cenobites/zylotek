@@ -167,7 +167,8 @@ cargo run -p zylotek-webapp -- --assistant-token "$TOKEN"           # :3000
 Options and environment variables: `--api-url` (`ZYLOTEK_API_URL`), `--assistant-url`
 (`ZYLOTEK_ASSISTANT_URL`), `--assistant-token` (`ZYLOTEK_ASSISTANT_TOKEN`), `--listen`
 (`ZYLOTEK_WEBAPP_LISTEN`, default `127.0.0.1:3000`). Browsing works even when the assistant is
-down, and asking works only when it is up.
+down, and asking works only when it is up. The ranking appears at once and the explanation
+writes itself in as the model produces it.
 
 ## Development
 
@@ -195,12 +196,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how the code is organised.
 
 ## Current limitations
 
-- The website has no accounts, search box or streaming of the assistant's answer: asking takes
-  as long as the model needs (seconds on a GPU) and the page appears when it is ready. It is
-  plain HTTP; put TLS in front before exposing it.
+- The website has no accounts or search box. It is plain HTTP; put TLS in front before
+  exposing it, and make sure the proxy does not buffer responses, or the explanation will
+  appear all at once (the site sends `X-Accel-Buffering: no` for nginx).
 
 - The assistant ranks on six properties computed from the catalogue; it does not read the
-  free-text descriptions (natural durability, end uses), and the answer is not streamed.
+  free-text descriptions (natural durability, end uses), and the explanation is a few sentences, not a conversation (there are no follow-up questions).
 
 - OAuth has no refresh tokens or revocation (tokens simply expire after an hour), one signing
   key with no rotation, and no rate limit on the token endpoint. Put a reverse proxy with TLS

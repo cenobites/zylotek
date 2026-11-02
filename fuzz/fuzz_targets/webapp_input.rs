@@ -6,12 +6,27 @@
 
 use libfuzzer_sys::fuzz_target;
 use zylotek_contracts::woods::WoodResponse;
-use zylotek_webapp::{clients::is_id, pages::compare_ids, view};
+use zylotek_webapp::{
+    clients::is_id,
+    pages::{compare_ids, escape},
+    view,
+};
 
 fuzz_target!(|data: &[u8]| {
     let Ok(text) = std::str::from_utf8(data) else {
         return;
     };
+
+    // Text written into the page by hand can never open a tag or an attribute.
+    let escaped = escape(text);
+    assert!(!escaped.contains(['<', '>', '"', '\'']));
+    let decoded = escaped
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&");
+    assert_eq!(decoded, text, "escaping loses nothing");
 
     if let Ok(ids) = compare_ids(Some(text)) {
         assert!((2..=4).contains(&ids.len()));

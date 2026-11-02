@@ -3,7 +3,7 @@
 mod common;
 
 use assert_cmd::Command;
-use common::{Site, api_with, ask, assistant, get, ids_in, model, site};
+use common::{Site, api_with, ask, assistant, get, ids_in, model, site, slow_model};
 use predicates::prelude::*;
 
 const WOODS: [(&str, f64); 3] = [("Soft", 300.0), ("Hard", 1500.0), ("Middle", 900.0)];
@@ -116,4 +116,40 @@ fn a_port_that_is_taken_is_a_clean_failure() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("error:"));
+}
+
+#[tokio::test]
+async fn the_ranking_reaches_the_browser_before_the_explanation_is_written() {
+    use std::time::{Duration, Instant};
+
+    let pause = Duration::from_millis(1500);
+    let api = api_with(&WOODS).await;
+    let model = slow_model(pause).await;
+    let assistant = assistant(&api.url, &model).await;
+    let site = site(&api.url, &assistant.url).await;
+
+    let started = Instant::now();
+    let mut response = reqwest::Client::new()
+        .post(format!("{}/ask", site.url))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body("question=a+hard+table")
+        .send()
+        .await
+        .unwrap();
+    let first = String::from_utf8(response.chunk().await.unwrap().unwrap().to_vec()).unwrap();
+    let first_at = started.elapsed();
+    let mut rest = String::new();
+    while let Some(chunk) = response.chunk().await.unwrap() {
+        rest += &String::from_utf8_lossy(&chunk);
+    }
+
+    assert!(first_at < pause, "the first bytes took {first_at:?}");
+    assert!(
+        first.contains("<strong>Hard</strong>"),
+        "the cards are in the first chunk"
+    );
+    assert!(!first.contains("wood suits a table."));
+    assert!(started.elapsed() >= pause, "the rest waited for the model");
+    assert!(rest.contains("wood suits a table."));
+    assert!(rest.trim_end().ends_with("</html>"));
 }

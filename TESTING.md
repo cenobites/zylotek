@@ -79,7 +79,7 @@ Needs nightly (`rustup toolchain install nightly`) and `cargo install cargo-fuzz
 | `value_objects`     | Constructors never panic; accepted values are idempotent              |
 | `http_requests`     | Any request is answered, never with a 5xx, and no write succeeds without a valid token |
 | `oauth_requests`    | Junk `Authorization` headers and token requests are never accepted    |
-| `webapp_input`      | Any compare query or wood JSON is handled; accepted ids and links are safe |
+| `webapp_input`      | Any compare query or wood JSON is handled; accepted ids and links are safe; escaping is lossless |
 | `model_reply`       | Any model reply parses within bounds; any figures rank with scores in 0..1, in order |
 
 ```bash

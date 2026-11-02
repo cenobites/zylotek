@@ -1,13 +1,20 @@
-{% extends "base.html" %}
-{% block title %}Your woods{% endblock %}
-{% block content %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your woods · Zylotek</title>
+{% include "style.html" %}
+</head>
+<body>
+{% include "nav.html" %}
+<main>
 <h1>Woods for your project</h1>
 <p class="muted">“{{ question }}”</p>
 {% if !summary.is_empty() %}<p>We understood: <strong>{{ summary }}</strong></p>{% endif %}
 <p class="chips">What we looked at:
 {% for (label, weight) in criteria %}<span>{{ label }}{% if *weight == 3 %} · essential{% else if *weight == 2 %} · important{% endif %}</span>{% endfor %}
 </p>
-{% if let Some(text) = explanation %}<div class="card">{{ text }}</div>{% endif %}
 {% if cards.is_empty() %}
 <p>No wood in the database has the figures needed for this question.</p>
 {% else %}
@@ -25,7 +32,5 @@
 {% endfor %}
 {% if can_compare %}<p><button type="submit">Compare selected (2 to 4)</button></p>{% endif %}
 </form>
-{% endif %}
-<p class="muted">Ranked among {{ catalogue_size }} woods.</p>
-<p><a href="/">Ask another question</a></p>
-{% endblock %}
+<h2>In short</h2>
+<div class="card prose">{% endif %}

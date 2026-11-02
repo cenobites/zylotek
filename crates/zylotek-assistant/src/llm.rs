@@ -1,9 +1,10 @@
 //! The language model behind a small trait, and an adapter for any server that speaks the
 //! OpenAI chat-completions protocol — llama.cpp's `llama-server`, vLLM, Ollama, LM Studio.
 
-use std::time::Duration;
+use std::{pin::Pin, time::Duration};
 
 use async_trait::async_trait;
+use futures::{Stream, stream};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -51,6 +52,9 @@ impl Message {
     }
 }
 
+/// The pieces of a reply as the model writes them.
+pub type TextStream = Pin<Box<dyn Stream<Item = Result<String, ModelError>> + Send>>;
+
 /// Something that completes a chat. With a schema, the reply must be JSON that fits it.
 #[async_trait]
 pub trait Model: Send + Sync {
@@ -59,6 +63,10 @@ pub trait Model: Send + Sync {
         messages: &[Message],
         schema: Option<&Value>,
     ) -> Result<String, ModelError>;
+
+    /// Like `complete` without a schema, but hands back the text piece by piece. Failing to
+    /// start is an `Err` here; a failure midway is an `Err` item in the stream.
+    async fn stream(&self, messages: &[Message]) -> Result<TextStream, ModelError>;
 }
 
 pub struct OpenAiCompatible {
@@ -85,13 +93,26 @@ impl OpenAiCompatible {
         }
     }
 
-    fn body(&self, messages: &[Message], schema: Option<&Value>) -> Value {
+    fn request(&self, body: Value) -> reqwest::RequestBuilder {
+        let request = self
+            .client
+            .post(&self.endpoint)
+            .header("content-type", "application/json")
+            .body(body.to_string());
+
+        match &self.api_key {
+            Some(key) => request.bearer_auth(key),
+            None => request,
+        }
+    }
+
+    fn body(&self, messages: &[Message], schema: Option<&Value>, stream: bool) -> Value {
         let mut body = json!({
             "model": self.model,
             "messages": messages.iter().map(Message::to_json).collect::<Vec<_>>(),
             "temperature": TEMPERATURE,
             "max_tokens": MAX_TOKENS,
-            "stream": false,
+            "stream": stream,
         });
         if let Some(schema) = schema {
             body["response_format"] = json!({
@@ -130,14 +151,7 @@ impl Model for OpenAiCompatible {
         messages: &[Message],
         schema: Option<&Value>,
     ) -> Result<String, ModelError> {
-        let mut request = self
-            .client
-            .post(&self.endpoint)
-            .header("content-type", "application/json")
-            .body(self.body(messages, schema).to_string());
-        if let Some(key) = &self.api_key {
-            request = request.bearer_auth(key);
-        }
+        let request = self.request(self.body(messages, schema, false));
 
         let response = request.send().await.map_err(transport)?;
         let status = response.status();
@@ -159,6 +173,116 @@ impl Model for OpenAiCompatible {
             .map(|content| content.trim().to_owned())
             .filter(|content| !content.is_empty())
             .ok_or(ModelError::Empty)
+    }
+
+    async fn stream(&self, messages: &[Message]) -> Result<TextStream, ModelError> {
+        let response = self
+            .request(self.body(messages, None, true))
+            .send()
+            .await
+            .map_err(transport)?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.map_err(transport)?;
+
+            return Err(ModelError::Status {
+                status: status.as_u16(),
+                body: body.chars().take(300).collect(),
+            });
+        }
+        let reader = SseReader {
+            response,
+            buffer: Vec::new(),
+            finished: false,
+        };
+
+        Ok(Box::pin(stream::unfold(reader, SseReader::next)))
+    }
+}
+
+/// What one line of a server-sent-events body means.
+#[derive(Debug, PartialEq, Eq)]
+enum Line {
+    Delta(String),
+    Done,
+    Skip,
+}
+
+fn parse_line(line: &str) -> Result<Line, ModelError> {
+    let Some(data) = line.trim_end_matches('\r').strip_prefix("data:") else {
+        return Ok(Line::Skip);
+    };
+    let data = data.trim();
+    if data == "[DONE]" {
+        return Ok(Line::Done);
+    }
+    let chunk: StreamChunk =
+        serde_json::from_str(data).map_err(|error| ModelError::Malformed(error.to_string()))?;
+    let text = chunk
+        .choices
+        .into_iter()
+        .next()
+        .and_then(|choice| choice.delta.content)
+        .unwrap_or_default();
+
+    Ok(if text.is_empty() {
+        Line::Skip
+    } else {
+        Line::Delta(text)
+    })
+}
+
+#[derive(Deserialize)]
+struct StreamChunk {
+    choices: Vec<StreamChoice>,
+}
+
+#[derive(Deserialize)]
+struct StreamChoice {
+    delta: Delta,
+}
+
+#[derive(Deserialize)]
+struct Delta {
+    content: Option<String>,
+}
+
+/// Reads a chunked response and hands out complete lines, however the network cut them.
+struct SseReader {
+    response: reqwest::Response,
+    buffer: Vec<u8>,
+    finished: bool,
+}
+
+impl SseReader {
+    /// The next piece of text, or `None` at the end (also after an error was handed out).
+    async fn next(mut self) -> Option<(Result<String, ModelError>, Self)> {
+        while !self.finished {
+            let Some(end) = self.buffer.iter().position(|byte| *byte == b'\n') else {
+                match self.response.chunk().await {
+                    Ok(Some(bytes)) => self.buffer.extend_from_slice(&bytes),
+                    Ok(None) if self.buffer.is_empty() => self.finished = true,
+                    Ok(None) => self.buffer.push(b'\n'),
+                    Err(error) => {
+                        self.finished = true;
+                        return Some((Err(transport(error)), self));
+                    }
+                }
+                continue;
+            };
+            let line: Vec<u8> = self.buffer.drain(..=end).collect();
+            match parse_line(&String::from_utf8_lossy(&line)) {
+                Ok(Line::Delta(text)) => return Some((Ok(text), self)),
+                Ok(Line::Skip) => {}
+                Ok(Line::Done) => self.finished = true,
+                Err(error) => {
+                    self.finished = true;
+                    return Some((Err(error), self));
+                }
+            }
+        }
+
+        None
     }
 }
 
@@ -297,5 +421,205 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, ModelError::Status { body, .. } if body.len() == 300));
+    }
+
+    // ---- streaming ----------------------------------------------------------------------
+
+    fn delta(text: &str) -> String {
+        format!(
+            "data: {}\n\n",
+            json!({"choices": [{"delta": {"content": text}}]})
+        )
+    }
+
+    async fn collect(stream: TextStream) -> Vec<Result<String, ModelError>> {
+        use futures::StreamExt;
+
+        stream.collect().await
+    }
+
+    fn texts(items: Vec<Result<String, ModelError>>) -> Vec<String> {
+        items.into_iter().map(Result::unwrap).collect()
+    }
+
+    /// Serves one chunked response, writing each part as its own chunk with a pause between,
+    /// so lines and even characters arrive cut in pieces. Without `finish` the connection is
+    /// dropped mid-body.
+    async fn chunked_server(parts: Vec<Vec<u8>>, finish: bool) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 4096];
+            let _ = socket.read(&mut request).await;
+            let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n";
+            socket.write_all(head.as_bytes()).await.unwrap();
+            for part in parts {
+                socket
+                    .write_all(format!("{:x}\r\n", part.len()).as_bytes())
+                    .await
+                    .unwrap();
+                socket.write_all(&part).await.unwrap();
+                socket.write_all(b"\r\n").await.unwrap();
+                socket.flush().await.unwrap();
+                tokio::time::sleep(Duration::from_millis(30)).await;
+            }
+            if finish {
+                socket.write_all(b"0\r\n\r\n").await.unwrap();
+            }
+        });
+
+        url
+    }
+
+    #[test]
+    fn each_kind_of_stream_line_is_understood() {
+        let delta_line = r#"data: {"choices":[{"delta":{"content":"Hi"}}]}"#;
+
+        assert_eq!(parse_line(delta_line).unwrap(), Line::Delta("Hi".into()));
+        assert_eq!(
+            parse_line(&format!("{delta_line}\r")).unwrap(),
+            Line::Delta("Hi".into())
+        );
+        assert_eq!(parse_line("data:[DONE]").unwrap(), Line::Done);
+        assert_eq!(parse_line("data: [DONE]").unwrap(), Line::Done);
+        for skipped in [
+            "",
+            ": keep-alive",
+            "event: message",
+            r#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#,
+            r#"data: {"choices":[{"delta":{"content":""}}]}"#,
+            r#"data: {"choices":[{"delta":{"content":null}}]}"#,
+            r#"data: {"choices":[]}"#,
+        ] {
+            assert_eq!(parse_line(skipped).unwrap(), Line::Skip, "{skipped:?}");
+        }
+        assert!(matches!(
+            parse_line("data: {oops"),
+            Err(ModelError::Malformed(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_stream_yields_the_pieces_in_order_and_asks_for_streaming() {
+        let server = MockServer::start().await;
+        let body = format!(
+            "{}{}: ping\n\n{}data: [DONE]\n\n",
+            delta("Hel"),
+            delta("lo, "),
+            delta("world")
+        );
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .and(body_partial_json(
+                json!({"stream": true, "messages": [{"role": "user", "content": "hi"}]}),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_string(body))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let model = OpenAiCompatible::new(&server.uri(), "m", Some("k".into()));
+
+        let stream = model.stream(&[Message::user("hi")]).await.unwrap();
+
+        assert_eq!(texts(collect(stream).await), ["Hel", "lo, ", "world"]);
+    }
+
+    #[tokio::test]
+    async fn text_after_done_is_ignored_and_a_missing_final_newline_is_tolerated() {
+        let server = MockServer::start().await;
+        Mock::given(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(format!(
+                "{}data: [DONE]\n\n{}",
+                delta("a"),
+                delta("never")
+            )))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                delta("x").trim_end().to_owned()
+                    + "\ndata: {\"choices\":[{\"delta\":{\"content\":\"y\"}}]}",
+            ))
+            .mount(&server)
+            .await;
+        let model = OpenAiCompatible::new(&server.uri(), "m", None);
+
+        let done = model.stream(&[Message::user("hi")]).await.unwrap();
+        let unterminated = model.stream(&[Message::user("hi")]).await.unwrap();
+
+        assert_eq!(texts(collect(done).await), ["a"]);
+        assert_eq!(texts(collect(unterminated).await), ["x", "y"]);
+    }
+
+    #[tokio::test]
+    async fn a_garbled_line_ends_the_stream_with_one_error() {
+        let server = MockServer::start().await;
+        Mock::given(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(format!(
+                "{}data: {{broken\n\n{}",
+                delta("ok"),
+                delta("after")
+            )))
+            .mount(&server)
+            .await;
+        let model = OpenAiCompatible::new(&server.uri(), "m", None);
+
+        let items = collect(model.stream(&[Message::user("hi")]).await.unwrap()).await;
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].as_ref().unwrap(), "ok");
+        assert!(matches!(items[1], Err(ModelError::Malformed(_))));
+    }
+
+    #[tokio::test]
+    async fn lines_and_characters_cut_by_the_network_are_put_back_together() {
+        let first = delta("caf");
+        let second = delta("é ao");
+        let middle = second.find('é').unwrap() + 1; // inside the two bytes of é
+        let parts = vec![
+            first.as_bytes()[..10].to_vec(),
+            first.as_bytes()[10..].to_vec(),
+            second.as_bytes()[..middle].to_vec(),
+            second.as_bytes()[middle..].to_vec(),
+        ];
+        let url = chunked_server(parts, true).await;
+        let model = OpenAiCompatible::new(&url, "m", None);
+
+        let items = collect(model.stream(&[Message::user("hi")]).await.unwrap()).await;
+
+        assert_eq!(texts(items).concat(), "café ao");
+    }
+
+    #[tokio::test]
+    async fn a_connection_that_dies_midway_is_an_error_item_then_the_end() {
+        let url = chunked_server(vec![delta("partial").into_bytes()], false).await;
+        let model = OpenAiCompatible::new(&url, "m", None);
+
+        let items = collect(model.stream(&[Message::user("hi")]).await.unwrap()).await;
+
+        assert_eq!(items[0].as_ref().unwrap(), "partial");
+        assert!(matches!(items.last(), Some(Err(ModelError::Transport(_)))));
+        assert_eq!(items.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_stream_that_cannot_start_is_an_error_up_front() {
+        let server = MockServer::start().await;
+        Mock::given(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(503).set_body_string("y".repeat(1000)))
+            .mount(&server)
+            .await;
+        let busy = OpenAiCompatible::new(&server.uri(), "m", None);
+        let down = OpenAiCompatible::new("http://127.0.0.1:1", "m", None);
+
+        let status = busy.stream(&[Message::user("hi")]).await.err().unwrap();
+        let transport = down.stream(&[Message::user("hi")]).await.err().unwrap();
+
+        assert!(matches!(status, ModelError::Status { status: 503, body } if body.len() == 300));
+        assert!(matches!(transport, ModelError::Transport(_)));
     }
 }
