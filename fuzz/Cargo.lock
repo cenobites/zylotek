@@ -4107,6 +4107,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "zylotek-assistant"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "zylotek-contracts",
+]
+
+[[package]]
 name = "zylotek-contracts"
 version = "0.1.0"
 dependencies = [
@@ -4134,6 +4152,7 @@ dependencies = [
  "tokio",
  "tower",
  "zylotek-api",
+ "zylotek-assistant",
  "zylotek-contracts",
  "zylotek-domain",
  "zylotek-sync",

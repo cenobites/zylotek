@@ -15,6 +15,7 @@ members = [
     "crates/zylotek-infrastructure",
     "crates/zylotek-api",
     "crates/zylotek-contracts",
+    "crates/zylotek-assistant",
 ]
 # cargo-fuzz targets need nightly and libFuzzer; they live in their own workspace.
 exclude = ["fuzz"]
@@ -24,6 +25,7 @@ zylotek-domain = { path = "crates/zylotek-domain" }
 zylotek-cli = { path = "crates/zylotek-cli" }
 zylotek-contracts = { path = "crates/zylotek-contracts" }
 zylotek-api = { path = "crates/zylotek-api" }
+zylotek-assistant = { path = "crates/zylotek-assistant" }
 zylotek-sync = { path = "crates/zylotek-sync" }
 zylotek-application = { path = "crates/zylotek-application" }
 zylotek-infrastructure = { path = "crates/zylotek-infrastructure" }

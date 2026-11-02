@@ -127,6 +127,31 @@ curl -X POST localhost:8080/api/v1/woods \
   }'
 ```
 
+### Assistant
+
+`zylotek-assistant` answers questions in plain language ("a table for 12 with Japanese
+joinery") from the catalogue of `zylotek-api`. A language model only reads the question and
+explains the answer; the ranking is arithmetic over the database. Run any OpenAI-compatible
+server on the machine with the GPU, for example llama.cpp:
+
+```bash
+# On the GPU machine: an instruction-tuned 7-14B model, 4-bit quantized
+llama-server -m qwen2.5-14b-instruct-q4_k_m.gguf --port 8081 --host 0.0.0.0 -ngl 99
+
+# Anywhere that can reach the API and the model server
+cargo run -p zylotek-assistant -- \
+  --api-url http://localhost:8080 --model-url http://gpu-box:8081 \
+  --listen 0.0.0.0:8090 --token "$(openssl rand -hex 24)"
+
+curl -s localhost:8090/v1/ask -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"question": "I want to build a table for 12 seats using Japanese joinery"}'
+```
+
+Every option has an environment variable (`ZYLOTEK_API_URL`, `ZYLOTEK_MODEL_URL`,
+`ZYLOTEK_MODEL_NAME`, `ZYLOTEK_MODEL_API_KEY`, `ZYLOTEK_ASSISTANT_TOKEN`,
+`ZYLOTEK_ASSISTANT_LISTEN`, `ZYLOTEK_ASSISTANT_REFRESH_SECS`). `GET /health` reports how many
+woods are loaded. It starts without the API and fills in once the API is reachable.
+
 ## Development
 
 ```bash
@@ -152,6 +177,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how the code is organised.
 | `Toasty.toml` | Migration configuration                                           |
 
 ## Current limitations
+
+- The assistant ranks on six properties computed from the catalogue; it does not read the
+  free-text descriptions (natural durability, end uses), and the answer is not streamed.
 
 - OAuth has no refresh tokens or revocation (tokens simply expire after an hour), one signing
   key with no rotation, and no rate limit on the token endpoint. Put a reverse proxy with TLS

@@ -1,0 +1,39 @@
+[package]
+name = "zylotek-assistant"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "zylotek-assistant"
+path = "src/main.rs"
+
+[dependencies]
+zylotek-contracts = { workspace = true }
+async-trait = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+zylotek-api = { workspace = true, features = ["testing"] }
+zylotek-domain = { workspace = true, features = ["testing"] }
+zylotek-infrastructure = { workspace = true, features = ["testing"] }
+assert_cmd = { workspace = true }
+criterion = { workspace = true }
+http-body-util = { workspace = true }
+predicates = { workspace = true }
+reqwest = { workspace = true }
+proptest = { workspace = true }
+tower = { workspace = true }
+wiremock = { workspace = true }
+
+[[bench]]
+name = "ranking"
+harness = false

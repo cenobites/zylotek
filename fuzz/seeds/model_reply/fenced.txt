@@ -1,0 +1,4 @@
+Sure!
+```json
+{"priorities":[{"property":"lightness","weight":9}]}
+```

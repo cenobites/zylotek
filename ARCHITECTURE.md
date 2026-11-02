@@ -145,6 +145,30 @@ Unknown fields are ignored on read, so the server can add fields without breakin
 `oauth` holds the token endpoint's request, response and error shapes (RFC 6749), so a client
 such as the assistant can obtain tokens without depending on the API crate.
 
+### `crates/zylotek-assistant`
+
+Answers questions such as "which wood for a table with Japanese joinery for 12 seats?". It
+is its own binary, meant to run next to the GPU, and depends on `zylotek-contracts` only: the
+catalogue arrives over HTTP from `GET /api/v1/woods` (public, so no token), page by page, and
+is swapped in as one immutable snapshot every few minutes (`catalogue.rs`). A question takes
+three steps (`assistant.rs`):
+
+1. **Understand.** The model, constrained by a JSON schema, turns the question into weighted
+   properties (hardness, strength, stiffness, stability, lightness, workability) and woods to
+   avoid. `requirements.rs` validates and clamps whatever comes back.
+2. **Rank.** `ranking.rs` is plain arithmetic: each property becomes a percentile among all
+   woods that have the figure, and a wood's score is the weighted mean, with a missing figure
+   counting as zero. The model never chooses a wood, so it cannot invent one and the same
+   question always yields the same list.
+3. **Explain.** The model writes a short answer from the ranked facts. If this fails, the
+   ranking is returned without it.
+
+`llm.rs` hides the model behind a `Model` trait; `OpenAiCompatible` speaks the chat-completions
+protocol of llama.cpp's `llama-server` (also vLLM, Ollama, LM Studio). `http.rs` serves
+`GET /health` and `POST /v1/ask`, the latter behind an optional shared bearer token.
+`server.rs` wires it up and is outside the unit gate. The request and response types live in
+`zylotek-contracts::assistant` for the web app.
+
 ### Root `src/main.rs`
 
 An empty placeholder.

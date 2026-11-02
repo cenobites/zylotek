@@ -4638,6 +4638,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "zylotek-assistant"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "async-trait",
+ "axum",
+ "clap",
+ "criterion",
+ "http-body-util",
+ "predicates",
+ "proptest",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "wiremock",
+ "zylotek-api",
+ "zylotek-contracts",
+ "zylotek-domain",
+ "zylotek-infrastructure",
+]
+
+[[package]]
 name = "zylotek-cli"
 version = "0.1.0"
 dependencies = [
