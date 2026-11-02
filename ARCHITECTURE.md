@@ -96,7 +96,13 @@ The axum HTTP binary and the **composition root**: `main.rs` is the only place w
 concrete types are chosen and wired together. `woods/mappers.rs` converts between the
 domain and the JSON shapes in `zylotek-contracts` through two local traits, `Convert` and
 `TryConvert` (the orphan rule rules out `From` between two foreign types).
-`woods/handlers.rs` holds `From<WoodUseCaseError> for ApiError`, where
+`auth/` is the OAuth 2.0 implementation: a token endpoint for the client-credentials grant, the
+JWKS and discovery document, and the `WriteAccess` extractor that the handlers which change
+data take as their first parameter. Reads are public; writes need a Bearer token with the
+`woods:write` scope; with OAuth unconfigured, writes answer `503` (fail closed). Tokens are
+EdDSA-signed JWTs (RFC 9068); the verifier fixes the algorithm and looks keys up in the
+published JWKS, so an external authorization server could replace the built-in one without
+touching the routes. `woods/handlers.rs` holds `From<WoodUseCaseError> for ApiError`, where
 errors become status codes: `NotFound` → 404, invalid id → 400, other domain errors → 422,
 persistence/event failures → 500.
 
@@ -136,6 +142,8 @@ enums). It depends on `serde` alone, so the server and every client — the web 
 assistant — share one definition and a rename breaks their builds instead of drifting
 silently. It knows nothing of the domain; converting is the API's job (`mappers.rs`).
 Unknown fields are ignored on read, so the server can add fields without breaking clients.
+`oauth` holds the token endpoint's request, response and error shapes (RFC 6749), so a client
+such as the assistant can obtain tokens without depending on the API crate.
 
 ### Root `src/main.rs`
 

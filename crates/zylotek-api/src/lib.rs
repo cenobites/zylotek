@@ -11,8 +11,9 @@ use zylotek_domain::woods::{
 };
 use zylotek_infrastructure::event_bus::tokio::{TokioEventPublisher, run_event_handler};
 
-use crate::state::AppState;
+use crate::{auth::Auth, state::AppState};
 
+pub mod auth;
 pub mod errors;
 pub mod middleware;
 pub mod router;
@@ -25,10 +26,11 @@ pub use server::cli;
 #[cfg(test)]
 mod test_support;
 
-/// Wires the use cases and event handler on top of `wood_repository`.
+/// Wires the use cases and event handler on top of `wood_repository`, and guards the write
+/// routes with `auth`.
 ///
 /// Spawns the event handler, so it must be called inside a Tokio runtime.
-pub fn build_state(wood_repository: Arc<dyn WoodRepository>) -> AppState {
+pub fn build_state(wood_repository: Arc<dyn WoodRepository>, auth: Auth) -> AppState {
     let wood_event_publisher = Arc::new(TokioEventPublisher::<WoodEvent>::new(1024));
     let wood_event_handler = WoodEventHandler::new();
 
@@ -54,6 +56,7 @@ pub fn build_state(wood_repository: Arc<dyn WoodRepository>) -> AppState {
 
     AppState {
         woods: Arc::new(wood_facade),
+        auth,
     }
 }
 
@@ -71,7 +74,10 @@ mod tests {
 
     #[tokio::test]
     async fn build_state_wires_a_working_stack_with_a_live_event_handler() {
-        let state = build_state(Arc::new(InMemoryWoodRepository::new()));
+        let state = build_state(
+            Arc::new(InMemoryWoodRepository::new()),
+            crate::auth::testing::auth(),
+        );
         let router = router(state);
 
         // Publishing succeeds only because the spawned handler subscribed to the bus.

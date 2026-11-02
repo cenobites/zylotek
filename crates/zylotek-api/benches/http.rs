@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use tokio::runtime::Runtime;
 use tower::ServiceExt;
 use zylotek_api::{
+    auth::testing,
     build_state,
     router::router,
     woods::mappers::{Convert, TryConvert},
@@ -39,7 +40,10 @@ async fn call(
     uri: &str,
     payload: Option<&Value>,
 ) -> (StatusCode, Vec<u8>) {
-    let mut request = Request::builder().method(method).uri(uri);
+    let mut request = Request::builder().method(method).uri(uri).header(
+        header::AUTHORIZATION,
+        format!("Bearer {}", testing::write_token()),
+    );
     let body = match payload {
         Some(json) => {
             request = request.header(header::CONTENT_TYPE, "application/json");
@@ -69,7 +73,10 @@ async fn call(
 fn seeded(runtime: &Runtime) -> (Router, String) {
     runtime.block_on(async {
         let db = memory_db().await.unwrap();
-        let router = router(build_state(Arc::new(PostgresWoodRepository::new(db))));
+        let router = router(build_state(
+            Arc::new(PostgresWoodRepository::new(db)),
+            testing::auth(),
+        ));
         let mut middle = String::new();
         for i in 0..SEEDED {
             let (status, created) = call(
@@ -184,5 +191,55 @@ fn schemas(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, requests, schemas);
+/// What every write pays for authentication, and what a client pays to get a token.
+fn oauth(c: &mut Criterion) {
+    let runtime = Runtime::new().unwrap();
+    let auth = testing::auth();
+    let (client_id, secret) = testing::writer_credentials();
+    let mut group = c.benchmark_group("oauth");
+
+    group.bench_function("verify_token", |b| {
+        b.iter(|| {
+            auth.authorize(black_box(Some(&bearer())), "woods:write")
+                .unwrap()
+        })
+    });
+    group.bench_function("reject_forged_token", |b| {
+        let forged = header::HeaderValue::from_static("Bearer eyJhbGciOiJFZERTQSJ9.e30.AAAA");
+        b.iter(|| {
+            auth.authorize(black_box(Some(&forged)), "woods:write")
+                .unwrap_err()
+        })
+    });
+
+    // Argon2 makes this slow by design; the number to watch is that it stays well under the
+    // request timeout.
+    group.sample_size(20);
+    group.bench_function("token_endpoint", |b| {
+        let router = runtime.block_on(async {
+            router(build_state(
+                Arc::new(zylotek_domain::testing::InMemoryWoodRepository::new()),
+                testing::auth(),
+            ))
+        });
+        let body =
+            format!("grant_type=client_credentials&client_id={client_id}&client_secret={secret}");
+        b.to_async(&runtime).iter(|| async {
+            let request = Request::builder()
+                .method(Method::POST)
+                .uri("/oauth/token")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(body.clone()))
+                .unwrap();
+            router.clone().oneshot(request).await.unwrap().status()
+        })
+    });
+    group.finish();
+}
+
+fn bearer() -> header::HeaderValue {
+    header::HeaderValue::from_str(&format!("Bearer {}", testing::write_token())).unwrap()
+}
+
+criterion_group!(benches, requests, schemas, oauth);
 criterion_main!(benches);

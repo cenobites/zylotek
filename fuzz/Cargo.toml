@@ -18,7 +18,7 @@ http-body-util = "0.1.5"
 serde_json = "1.0"
 tokio = { version = "1.53.2", features = ["rt", "macros"] }
 tower = { version = "0.5", features = ["util"] }
-zylotek-api = { path = "../crates/zylotek-api" }
+zylotek-api = { path = "../crates/zylotek-api", features = ["testing"] }
 zylotek-contracts = { path = "../crates/zylotek-contracts" }
 zylotek-domain = { path = "../crates/zylotek-domain", features = ["testing"] }
 zylotek-sync = { path = "../crates/zylotek-sync" }
@@ -40,6 +40,13 @@ bench = false
 [[bin]]
 name = "value_objects"
 path = "fuzz_targets/value_objects.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oauth_requests"
+path = "fuzz_targets/oauth_requests.rs"
 test = false
 doc = false
 bench = false

@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header::WWW_AUTHENTICATE},
     response::{IntoResponse, Response},
 };
 
@@ -17,8 +17,31 @@ pub enum ApiError {
     #[error("{0}")]
     BadRequest(String),
 
+    /// No valid access token. `challenge` becomes the `WWW-Authenticate` header (RFC 6750).
+    #[error("{message}")]
+    Unauthorized { message: String, challenge: String },
+
+    /// A valid token that lacks the scope the route needs.
+    #[error("{message}")]
+    Forbidden { message: String, challenge: String },
+
+    #[error("{0}")]
+    ServiceUnavailable(String),
+
     #[error("internal server error")]
     Internal(#[source] anyhow::Error),
+}
+
+impl ApiError {
+    /// The `WWW-Authenticate` value that goes with this error, if it has one.
+    pub fn challenge(&self) -> Option<&str> {
+        match self {
+            ApiError::Unauthorized { challenge, .. } | ApiError::Forbidden { challenge, .. } => {
+                Some(challenge)
+            }
+            _ => None,
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -32,6 +55,14 @@ impl IntoResponse for ApiError {
 
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "BAD_REQUEST"),
 
+            ApiError::Unauthorized { .. } => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED"),
+
+            ApiError::Forbidden { .. } => (StatusCode::FORBIDDEN, "FORBIDDEN"),
+
+            ApiError::ServiceUnavailable(_) => {
+                (StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE")
+            }
+
             ApiError::Internal(error) => {
                 tracing::error!(error = ?error, "internal server error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR")
@@ -43,7 +74,15 @@ impl IntoResponse for ApiError {
             message: self.to_string(),
         });
 
-        (status, body).into_response()
+        let challenge = self
+            .challenge()
+            .and_then(|challenge| HeaderValue::from_str(challenge).ok());
+        let mut response = (status, body).into_response();
+        if let Some(challenge) = challenge {
+            response.headers_mut().insert(WWW_AUTHENTICATE, challenge);
+        }
+
+        response
     }
 }
 

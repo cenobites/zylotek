@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     Router,
@@ -11,8 +11,14 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tower::ServiceExt;
-use zylotek_api::{build_state, router::router, woods::mappers::Convert};
+use zylotek_api::{
+    auth::{Auth, testing},
+    build_state,
+    router::router,
+    woods::mappers::Convert,
+};
 use zylotek_contracts::woods::WoodDetailsSchema;
 use zylotek_domain::testing::full_details;
 use zylotek_infrastructure::{
@@ -20,9 +26,44 @@ use zylotek_infrastructure::{
 };
 
 pub async fn app() -> Router {
+    app_with(testing::auth()).await
+}
+
+pub async fn app_with(auth: Auth) -> Router {
     let db = memory_db().await.unwrap();
 
-    router(build_state(Arc::new(PostgresWoodRepository::new(db))))
+    router(build_state(Arc::new(PostgresWoodRepository::new(db)), auth))
+}
+
+/// The router served on an ephemeral local port, until `shutdown` is signalled.
+pub struct Server {
+    pub address: SocketAddr,
+    pub shutdown: oneshot::Sender<()>,
+    pub task: JoinHandle<std::io::Result<()>>,
+}
+
+pub async fn serve() -> Server {
+    serve_with(testing::auth()).await
+}
+
+pub async fn serve_with(auth: Auth) -> Server {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (shutdown, signal) = oneshot::channel::<()>();
+    let router = app_with(auth).await;
+    let task = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = signal.await;
+            })
+            .await
+    });
+
+    Server {
+        address,
+        shutdown,
+        task,
+    }
 }
 
 /// A `POST`/`PUT` body with every detail populated.
@@ -40,7 +81,10 @@ pub async fn send(
     uri: &str,
     body: Option<&Value>,
 ) -> (StatusCode, Value) {
-    let mut request = Request::builder().method(method).uri(uri);
+    let mut request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::AUTHORIZATION, bearer(testing::write_token()));
     let body = match body {
         Some(json) => {
             request = request.header(header::CONTENT_TYPE, "application/json");
@@ -50,6 +94,10 @@ pub async fn send(
     };
 
     send_raw(router, request.body(body).unwrap()).await
+}
+
+pub fn bearer(token: &str) -> String {
+    format!("Bearer {token}")
 }
 
 pub async fn send_raw(router: &Router, request: Request<Body>) -> (StatusCode, Value) {

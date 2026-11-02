@@ -1,5 +1,6 @@
 //! Arbitrary requests against the whole router: it answers, and never with a 5xx — the
-//! in-memory repository cannot fail, so a server error means a bug.
+//! in-memory repository cannot fail, so a server error means a bug. And without a valid write
+//! token, no request that changes woods ever succeeds.
 
 #![no_main]
 
@@ -14,7 +15,7 @@ use axum::{
 use libfuzzer_sys::fuzz_target;
 use tokio::runtime::Runtime;
 use tower::ServiceExt;
-use zylotek_api::{build_state, router::router};
+use zylotek_api::{auth::testing, build_state, router::router};
 use zylotek_domain::testing::InMemoryWoodRepository;
 
 #[derive(Debug, Arbitrary)]
@@ -23,7 +24,17 @@ struct Input {
     path: PathChoice,
     query: String,
     json: bool,
+    /// Which credentials to send: none, a valid write token, a token without the scope, or junk.
+    credentials: Credentials,
     body: Vec<u8>,
+}
+
+#[derive(Debug, Arbitrary)]
+enum Credentials {
+    None,
+    Valid,
+    WrongScope,
+    Junk(String),
 }
 
 #[derive(Debug, Arbitrary)]
@@ -46,8 +57,12 @@ fn harness() -> &'static Harness {
             .enable_all()
             .build()
             .unwrap();
-        let router = runtime
-            .block_on(async { router(build_state(Arc::new(InMemoryWoodRepository::new()))) });
+        let router = runtime.block_on(async {
+            router(build_state(
+                Arc::new(InMemoryWoodRepository::new()),
+                testing::auth(),
+            ))
+        });
         Harness { runtime, router }
     })
 }
@@ -83,6 +98,21 @@ fuzz_target!(|input: Input| {
     if input.json {
         builder = builder.header(header::CONTENT_TYPE, "application/json");
     }
+    let authorized = matches!(input.credentials, Credentials::Valid);
+    let authorization = match &input.credentials {
+        Credentials::None => None,
+        Credentials::Valid => Some(format!("Bearer {}", testing::write_token())),
+        Credentials::WrongScope => Some(format!("Bearer {}", testing::read_only_token())),
+        Credentials::Junk(junk) => Some(format!("Bearer {junk}")),
+    };
+    if let Some(authorization) = authorization {
+        builder = builder.header(header::AUTHORIZATION, authorization);
+    }
+    let changes_woods = uri.starts_with("/api/v1/woods")
+        && matches!(
+            input.method as usize % 6,
+            1..=3 // POST, PUT, DELETE
+        );
     let Ok(request) = builder.body(Body::from(input.body)) else {
         return;
     };
@@ -96,6 +126,11 @@ fuzz_target!(|input: Input| {
     assert!(
         !response.status().is_server_error(),
         "{uri} -> {}",
+        response.status()
+    );
+    assert!(
+        authorized || !changes_woods || !response.status().is_success(),
+        "{uri} changed woods without a valid token: {}",
         response.status()
     );
 });

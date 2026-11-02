@@ -8,6 +8,7 @@ use axum::{
 };
 use common::{app, send, send_raw, wood_body};
 use serde_json::{Value, json};
+use zylotek_api::auth::testing;
 
 const WOODS: &str = "/api/v1/woods";
 
@@ -243,7 +244,10 @@ async fn updating_to_a_name_owned_by_another_wood_is_rejected_and_changes_nothin
 async fn malformed_requests_are_rejected_before_reaching_the_domain() {
     let app = app().await;
     let post = |content_type: Option<&str>, body: &str| {
-        let mut request = Request::builder().method(Method::POST).uri(WOODS);
+        let mut request = Request::builder().method(Method::POST).uri(WOODS).header(
+            header::AUTHORIZATION,
+            common::bearer(testing::write_token()),
+        );
         if let Some(content_type) = content_type {
             request = request.header(header::CONTENT_TYPE, content_type);
         }

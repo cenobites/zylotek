@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use axum::{Router, routing::get};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use tower_http::{
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
@@ -9,7 +12,11 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{state::AppState, woods};
+use crate::{
+    auth::{jwks_handler, metadata_handler, token_handler},
+    state::AppState,
+    woods,
+};
 
 pub fn router(state: AppState) -> Router {
     let cors = CorsLayer::new()
@@ -20,6 +27,12 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .nest("/api/v1/woods", woods::routes::router())
         .route("/health", get(health_check_handler))
+        .route("/oauth/token", post(token_handler))
+        .route("/.well-known/jwks.json", get(jwks_handler))
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(metadata_handler),
+        )
         .with_state(state)
         .fallback(not_found_handler)
         .layer(axum::middleware::from_fn(

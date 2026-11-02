@@ -20,8 +20,20 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 log = { workspace = true }
+jsonwebtoken = { workspace = true }
+argon2 = { workspace = true }
+ed25519-dalek = { workspace = true }
+base64 = { workspace = true }
+getrandom = { workspace = true }
+percent-encoding = { workspace = true }
+
+[features]
+# An always-on `Auth` and a valid write token for other crates' tests, benches and fuzz targets.
+testing = []
 
 [dev-dependencies]
+tempfile = { workspace = true }
+zylotek-api = { path = ".", features = ["testing"] }
 zylotek-domain = { workspace = true, features = ["testing"] }
 zylotek-infrastructure = { workspace = true, features = ["testing"] }
 criterion = { workspace = true }

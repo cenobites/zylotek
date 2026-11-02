@@ -11,12 +11,14 @@ use zylotek_contracts::woods::{ListWoodsParams, WoodPageResponse, WoodRequest, W
 use zylotek_domain::woods::{entities::WoodId, errors::WoodError};
 
 use crate::{
+    auth::WriteAccess,
     errors::ApiError,
     state::AppState,
     woods::mappers::{Convert, TryConvert},
 };
 
 pub async fn create_wood_handler(
+    _access: WriteAccess,
     State(state): State<AppState>,
     Json(request): Json<WoodRequest>,
 ) -> Result<(StatusCode, Json<WoodResponse>), ApiError> {
@@ -58,6 +60,7 @@ pub async fn get_wood_handler(
 }
 
 pub async fn update_wood_handler(
+    _access: WriteAccess,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(request): Json<WoodRequest>,
@@ -78,6 +81,7 @@ pub async fn update_wood_handler(
 }
 
 pub async fn delete_wood_handler(
+    _access: WriteAccess,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {

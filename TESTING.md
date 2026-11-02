@@ -41,6 +41,9 @@ Crates share fixtures through `testing` modules, compiled only for tests or behi
 - `zylotek_domain::testing`: `full_details()` (every field populated, so round-trip tests
   touch everything), `wood()`, and `InMemoryWoodRepository` with per-operation fault
   injection (`.fail_on(Operation::Save)`).
+- `zylotek_api::auth::testing` (feature `testing`): an enabled `Auth` built once per process
+  from a freshly generated key, plus `write_token()`, `read_only_token()` and the writer
+  client's credentials. No key is ever committed.
 - `zylotek_infrastructure::testing`: `RecordingEventPublisher`, `FailingEventPublisher`,
   `memory_db()`.
 - `toasty/fixtures/*.csv`: the real open-data export. `crates/zylotek-sync/tests/open_data.rs`
@@ -74,7 +77,8 @@ Needs nightly (`rustup toolchain install nightly`) and `cargo install cargo-fuzz
 | `parse_open_data`   | Any bytes yield a parse result or error; parsed woods are valid       |
 | `wood_request_json` | Any JSON body is rejected or converts to values that re-validate      |
 | `value_objects`     | Constructors never panic; accepted values are idempotent              |
-| `http_requests`     | Any request to the router is answered, never with a 5xx               |
+| `http_requests`     | Any request is answered, never with a 5xx, and no write succeeds without a valid token |
+| `oauth_requests`    | Junk `Authorization` headers and token requests are never accepted    |
 
 ```bash
 make fuzz                                   # every target, 60s each

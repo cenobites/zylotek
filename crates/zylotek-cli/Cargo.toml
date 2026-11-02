@@ -20,5 +20,6 @@ tokio = { workspace = true }
 [dev-dependencies]
 zylotek-domain = { workspace = true, features = ["testing"] }
 assert_cmd = { workspace = true }
+serde_json = { workspace = true }
 predicates = { workspace = true }
 tempfile = { workspace = true }

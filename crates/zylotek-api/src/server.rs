@@ -6,9 +6,9 @@ use std::sync::Arc;
 use tokio::{net::TcpListener, signal};
 use zylotek_infrastructure::persistence::{build_db, woods::repositories::PostgresWoodRepository};
 
-use crate::{build_state, errors::ApiError, router::router};
+use crate::{auth::Auth, build_state, errors::ApiError, router::router};
 
-async fn run(database_url: &str) -> anyhow::Result<()> {
+async fn run(database_url: &str, auth: Auth) -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -17,7 +17,13 @@ async fn run(database_url: &str) -> anyhow::Result<()> {
         .init();
 
     let db = build_db(database_url).await?;
-    let state = build_state(Arc::new(PostgresWoodRepository::new(db)));
+    if !auth.is_enabled() {
+        log::warn!(
+            "OAuth is not configured: the write routes answer 503. Create a key and a client \
+             with `zylotek-cli auth keygen` and `zylotek-cli auth client create`"
+        );
+    }
+    let state = build_state(Arc::new(PostgresWoodRepository::new(db)), auth);
 
     let app = router(state);
     let listener = TcpListener::bind("0.0.0.0:8080").await?;
@@ -32,13 +38,14 @@ async fn run(database_url: &str) -> anyhow::Result<()> {
 }
 
 /// Serves the API on port 8080 until a termination signal arrives.
-pub fn cli(database_url: &str) -> Result<(), ApiError> {
+pub fn cli(database_url: &str, auth: Auth) -> Result<(), ApiError> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| ApiError::Internal(anyhow::Error::new(e)))?;
 
-    rt.block_on(run(database_url)).map_err(ApiError::Internal)
+    rt.block_on(run(database_url, auth))
+        .map_err(ApiError::Internal)
 }
 
 fn print_banner() {

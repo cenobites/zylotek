@@ -168,6 +168,9 @@ fn wait_until_serving(child: &mut Child, port: u16) -> String {
 #[test]
 #[cfg(unix)]
 fn api_run_serves_health_and_stops_on_sigterm() {
+    let _port = PORT_8080
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if TcpListener::bind(("0.0.0.0", 8080)).is_err() {
         eprintln!("skipping: port 8080 is in use");
         return;
@@ -377,4 +380,337 @@ fn the_database_url_can_come_from_the_environment() {
         .success();
 
     assert_eq!(stored_woods(&url).len(), 225);
+}
+
+// --- OAuth -----------------------------------------------------------------------------
+
+use std::sync::Mutex;
+
+/// `api run` binds the fixed port 8080, so the tests that start it take turns.
+static PORT_8080: Mutex<()> = Mutex::new(());
+
+fn oauth_files(dir: &TempDir) -> (String, String) {
+    (
+        dir.path().join("key.pem").display().to_string(),
+        dir.path().join("clients.json").display().to_string(),
+    )
+}
+
+fn auth(dir: &TempDir) -> Command {
+    let (key, clients) = oauth_files(dir);
+    let mut command = cli();
+    command
+        .current_dir(dir.path())
+        .env_remove("ZYLOTEK_OAUTH_SIGNING_KEY")
+        .env_remove("ZYLOTEK_OAUTH_CLIENTS")
+        .args(["--oauth-signing-key", &key, "--oauth-clients", &clients]);
+    command
+}
+
+#[test]
+fn auth_keygen_writes_a_private_key_and_refuses_to_overwrite_it() {
+    let dir = TempDir::new().unwrap();
+    let (key, _) = oauth_files(&dir);
+
+    auth(&dir)
+        .args(["auth", "keygen"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Wrote a new signing key"));
+
+    let pem = fs::read_to_string(&key).unwrap();
+    assert!(pem.starts_with("-----BEGIN PRIVATE KEY-----"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&key).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    auth(&dir)
+        .args(["auth", "keygen"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("refusing to overwrite"));
+    assert_eq!(
+        fs::read_to_string(&key).unwrap(),
+        pem,
+        "the key is untouched"
+    );
+}
+
+#[test]
+fn auth_client_create_shows_the_secret_once_and_stores_only_its_hash() {
+    let dir = TempDir::new().unwrap();
+    let (_, clients) = oauth_files(&dir);
+    let output = auth(&dir)
+        .args(["auth", "client", "create", "assistant"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Created client assistant (woods:write)",
+        ))
+        .get_output()
+        .stdout
+        .clone();
+    let stdout = String::from_utf8(output).unwrap();
+    let secret = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("client_secret: "))
+        .expect("the secret is printed")
+        .to_owned();
+
+    let stored = fs::read_to_string(&clients).unwrap();
+    assert_eq!(secret.len(), 43);
+    assert!(!stored.contains(&secret), "only the hash is stored");
+    assert!(stored.contains("$argon2id$"));
+    auth(&dir)
+        .args(["auth", "client", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("assistant\twoods:write"))
+        .stdout(predicate::str::contains(&secret).not());
+}
+
+#[test]
+fn auth_client_create_validates_and_never_replaces_a_client() {
+    let dir = TempDir::new().unwrap();
+    auth(&dir)
+        .args([
+            "auth",
+            "client",
+            "create",
+            "bot",
+            "-s",
+            "woods:write",
+            "-s",
+            "woods:read",
+        ])
+        .assert()
+        .success();
+
+    auth(&dir)
+        .args(["auth", "client", "create", "bot"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("already exists"));
+    auth(&dir)
+        .args(["auth", "client", "create", "has space"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("invalid client id"));
+    auth(&dir)
+        .args(["auth", "client", "create", "other", "--scope", "WRITE"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("invalid scope"));
+    auth(&dir)
+        .args(["auth", "client", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bot\twoods:write woods:read"))
+        .stdout(predicate::str::contains("other").not());
+}
+
+#[test]
+fn auth_client_list_says_so_when_there_are_no_clients() {
+    let dir = TempDir::new().unwrap();
+
+    auth(&dir)
+        .args(["auth", "client", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No clients yet"));
+}
+
+/// One HTTP/1.0 exchange; returns the status code and the body.
+fn http(method: &str, path: &str, headers: &[(&str, &str)], body: &str) -> (u16, String) {
+    let mut stream = TcpStream::connect(("127.0.0.1", 8080)).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut request = format!(
+        "{method} {path} HTTP/1.0\r\nHost: localhost\r\nContent-Length: {}\r\n",
+        body.len()
+    );
+    for (name, value) in headers {
+        request += &format!("{name}: {value}\r\n");
+    }
+    stream
+        .write_all(format!("{request}\r\n{body}").as_bytes())
+        .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    let status = response.split(' ').nth(1).unwrap().parse().unwrap();
+
+    (
+        status,
+        response
+            .split_once("\r\n\r\n")
+            .map(|(_, body)| body.to_owned())
+            .unwrap_or_default(),
+    )
+}
+
+/// `api run` as a child process, stopped when dropped.
+struct Api(Child);
+
+impl Drop for Api {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn start_api(dir: &TempDir, extra: &[&str]) -> Api {
+    let mut child = Process::new(assert_cmd::cargo::cargo_bin("zylotek-cli"))
+        .current_dir(dir.path())
+        .env("ZYLOTEK_DATABASE_URL", "sqlite::memory:")
+        .env_remove("ZYLOTEK_OAUTH_SIGNING_KEY")
+        .env_remove("ZYLOTEK_OAUTH_CLIENTS")
+        .args(extra)
+        .args(["api", "run"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    wait_until_serving(&mut child, 8080);
+
+    Api(child)
+}
+
+const WOOD: &str = r#"{"name":"Aroeira","scientific_name":"Myracrodruon urundeuva"}"#;
+
+#[test]
+#[cfg(unix)]
+fn api_run_demands_a_token_for_writes_once_a_key_and_a_client_exist() {
+    let _port = PORT_8080
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if TcpListener::bind(("0.0.0.0", 8080)).is_err() {
+        eprintln!("skipping: port 8080 is in use");
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    auth(&dir).args(["auth", "keygen"]).assert().success();
+    let created = auth(&dir)
+        .args(["auth", "client", "create", "importer"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(created.get_output().stdout.clone()).unwrap();
+    let secret = stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("client_secret: "))
+        .unwrap()
+        .to_owned();
+    let (key, clients) = oauth_files(&dir);
+    let _api = start_api(
+        &dir,
+        &["--oauth-signing-key", &key, "--oauth-clients", &clients],
+    );
+    let json = [("Content-Type", "application/json")];
+
+    // Reads are open; a write without a token is challenged.
+    assert_eq!(http("GET", "/api/v1/woods", &[], "").0, 200);
+    let (status, body) = http("POST", "/api/v1/woods", &json, WOOD);
+    assert_eq!((status, body.contains("UNAUTHORIZED")), (401, true));
+
+    // The client trades its secret for a token and writes with it.
+    let basic = format!("Basic {}", base64_encode(&format!("importer:{secret}")));
+    let (status, body) = http(
+        "POST",
+        "/oauth/token",
+        &[
+            ("Authorization", &basic),
+            ("Content-Type", "application/x-www-form-urlencoded"),
+        ],
+        "grant_type=client_credentials",
+    );
+    assert_eq!(status, 200, "{body}");
+    let token: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let bearer = format!("Bearer {}", token["access_token"].as_str().unwrap());
+    let (status, body) = http(
+        "POST",
+        "/api/v1/woods",
+        &[("Authorization", &bearer), json[0]],
+        WOOD,
+    );
+    assert_eq!(status, 201, "{body}");
+    let (_, listing) = http("GET", "/api/v1/woods", &[], "");
+    assert!(listing.contains("Myracrodruon urundeuva"));
+
+    // A wrong secret gets nothing.
+    let wrong = format!("Basic {}", base64_encode("importer:wrong"));
+    let (status, _) = http(
+        "POST",
+        "/oauth/token",
+        &[
+            ("Authorization", &wrong),
+            ("Content-Type", "application/x-www-form-urlencoded"),
+        ],
+        "grant_type=client_credentials",
+    );
+    assert_eq!(status, 401);
+}
+
+#[test]
+#[cfg(unix)]
+fn api_run_without_oauth_files_serves_reads_and_refuses_writes() {
+    let _port = PORT_8080
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if TcpListener::bind(("0.0.0.0", 8080)).is_err() {
+        eprintln!("skipping: port 8080 is in use");
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let _api = start_api(&dir, &[]);
+
+    let (read, _) = http("GET", "/api/v1/woods", &[], "");
+    let (write, body) = http(
+        "POST",
+        "/api/v1/woods",
+        &[("Content-Type", "application/json")],
+        WOOD,
+    );
+
+    assert_eq!(read, 200);
+    assert_eq!(write, 503);
+    assert!(body.contains("OAuth is not configured"), "{body}");
+}
+
+#[test]
+fn api_run_refuses_to_start_with_half_an_oauth_setup() {
+    let dir = TempDir::new().unwrap();
+    let (key, _) = oauth_files(&dir);
+    auth(&dir).args(["auth", "keygen"]).assert().success();
+
+    // A key but no clients file: given by neither flag nor default name.
+    cli()
+        .current_dir(dir.path())
+        .env_remove("ZYLOTEK_OAUTH_CLIENTS")
+        .env_remove("ZYLOTEK_OAUTH_SIGNING_KEY")
+        .args(["--oauth-signing-key", &key, "api", "run"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("only half configured"));
+}
+
+fn base64_encode(text: &str) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in text.as_bytes().chunks(3) {
+        let n = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        for index in 0..4 {
+            if index <= chunk.len() {
+                out.push(ALPHABET[((n >> (18 - 6 * index)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }

@@ -59,6 +59,14 @@ toasty = { version = "0.11.0", features = ["sqlite", "serde"] }
 toasty-cli = { version = "0.11.0" }
 toasty-driver-sqlite = "0.11.0"
 
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "rust_crypto"] }
+argon2 = "0.6.0"
+ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "pem", "rand_core"] }
+base64 = "0.23.1"
+getrandom = { version = "0.4.3", features = ["sys_rng"] }
+percent-encoding = "2.3"
+
+
 # Test-only dependencies.
 assert_cmd = "2.2.2"
 criterion = { version = "0.8.2", features = ["async_tokio"] }
@@ -68,3 +76,11 @@ predicates = "3.1.4"
 proptest = "1.12.0"
 tempfile = "3.27.0"
 wiremock = "0.6.5"
+
+# Password hashing is deliberately slow; unoptimized it makes every test that touches a client
+# secret take seconds, so build the hash and its digest at full speed even in dev and test.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

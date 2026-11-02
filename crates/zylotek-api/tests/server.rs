@@ -2,37 +2,8 @@
 
 mod common;
 
-use std::net::SocketAddr;
-
-use common::{app, wood_body};
+use common::{serve, wood_body};
 use serde_json::Value;
-use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
-
-struct Server {
-    address: SocketAddr,
-    shutdown: oneshot::Sender<()>,
-    task: JoinHandle<std::io::Result<()>>,
-}
-
-async fn serve() -> Server {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let (shutdown, signal) = oneshot::channel::<()>();
-    let router = app().await;
-    let task = tokio::spawn(async move {
-        axum::serve(listener, router)
-            .with_graceful_shutdown(async {
-                let _ = signal.await;
-            })
-            .await
-    });
-
-    Server {
-        address,
-        shutdown,
-        task,
-    }
-}
 
 #[tokio::test]
 async fn serves_requests_over_http() {
@@ -44,8 +15,21 @@ async fn serves_requests_over_http() {
     assert_eq!(health.status(), 200);
     assert_eq!(health.text().await.unwrap(), "OK");
 
+    let (client_id, secret) = zylotek_api::auth::testing::writer_credentials();
+    let token = client
+        .post(format!("{base}/oauth/token"))
+        .basic_auth(client_id, Some(secret))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body("grant_type=client_credentials")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(token.status(), 200);
+    let token: Value = serde_json::from_str(&token.text().await.unwrap()).unwrap();
+
     let created = client
         .post(format!("{base}/api/v1/woods"))
+        .bearer_auth(token["access_token"].as_str().unwrap())
         .header("content-type", "application/json")
         .body(wood_body("Aroeira", "Myracrodruon urundeuva").to_string())
         .send()
