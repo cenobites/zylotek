@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 zylotek-domain = { workspace = true }
 zylotek-application = { workspace = true }
-zylotek-infrastructure = { workspace = true }
+zylotek-infrastructure = { workspace = true, features = ["persistence"] }
 zylotek-api = { workspace = true }
 zylotek-sync = { workspace = true }
 log = { workspace = true }

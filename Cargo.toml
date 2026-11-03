@@ -32,9 +32,10 @@ zylotek-webapp = { path = "crates/zylotek-webapp" }
 zylotek-sync = { path = "crates/zylotek-sync" }
 zylotek-config = { path = "crates/zylotek-config" }
 zylotek-application = { path = "crates/zylotek-application" }
-zylotek-infrastructure = { path = "crates/zylotek-infrastructure" }
+# Without default features so clients can take `logging` alone; crates that use the database
+# ask for the `persistence` feature.
+zylotek-infrastructure = { path = "crates/zylotek-infrastructure", default-features = false }
 log = "0.4.34"
-simple_logger = { version = "5.2.0", features = ["colors", "threads", "timestamps", "stderr"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 futures = "0.3.34"
 trait-variant = "0.1.3"

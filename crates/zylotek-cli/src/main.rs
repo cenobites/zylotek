@@ -5,10 +5,17 @@ use clap::Parser;
 
 use cli::{Cli, Commands};
 use commands::{auth, db, external, sync};
+use zylotek_infrastructure::logging::{self, LoggingConfig};
 
 fn main() {
     let cli = Cli::parse();
     let oauth = cli.oauth();
+
+    // Progress and warnings go to stderr, so stdout stays for what a command prints.
+    if let Err(err) = logging::init_with_env(LoggingConfig::cli()) {
+        eprintln!("ERROR: {err}");
+        std::process::exit(1);
+    }
 
     let result = match cli.command {
         Some(Commands::Db(cmd)) => db::execute(&cmd),

@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 zylotek-contracts = { workspace = true }
+zylotek-infrastructure = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }
@@ -20,7 +21,6 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 zylotek-api = { workspace = true, features = ["testing"] }

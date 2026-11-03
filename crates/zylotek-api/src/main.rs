@@ -2,7 +2,10 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::Parser;
 use zylotek_api::{auth::DEFAULT_ISSUER, serve};
-use zylotek_infrastructure::persistence::DEFAULT_DATABASE_URL;
+use zylotek_infrastructure::{
+    logging::{self, LoggingConfig},
+    persistence::DEFAULT_DATABASE_URL,
+};
 
 /// The Zylotek HTTP API, on 0.0.0.0:8080.
 #[derive(Parser)]
@@ -30,6 +33,11 @@ struct Args {
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = Args::parse();
+
+    if let Err(error) = logging::init_with_env(LoggingConfig::server()) {
+        eprintln!("ERROR: {error}");
+        return ExitCode::FAILURE;
+    }
 
     let auth = zylotek_api::auth::Auth::from_files(
         args.oauth_signing_key.as_deref(),

@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 zylotek-domain = { workspace = true }
-zylotek-infrastructure = { workspace = true }
+zylotek-infrastructure = { workspace = true, features = ["persistence"] }
 zylotek-application = { workspace = true }
 zylotek-contracts = { workspace = true }
 chrono = { workspace = true }
@@ -22,7 +22,6 @@ tokio = { workspace = true }
 thiserror = { workspace = true}
 anyhow = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 log = { workspace = true }
 clap = { workspace = true }
 jsonwebtoken = { workspace = true }

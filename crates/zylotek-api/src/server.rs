@@ -9,13 +9,6 @@ use zylotek_infrastructure::persistence::{build_db, woods::repositories::Postgre
 use crate::{auth::Auth, build_state, errors::ApiError, router::router};
 
 async fn run(database_url: &str, auth: Auth) -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .json()
-        .init();
-
     let db = build_db(database_url).await?;
     if !auth.is_enabled() {
         log::warn!(

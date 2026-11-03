@@ -5,6 +5,7 @@ use zylotek_assistant::{
     DEFAULT_TOP,
     server::{Config, run},
 };
+use zylotek_infrastructure::logging::{self, LoggingConfig};
 
 /// Answers questions about which wood to use, from the Zylotek catalogue.
 #[derive(Parser)]
@@ -56,6 +57,11 @@ struct Cli {
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
+
+    if let Err(error) = logging::init_with_env(LoggingConfig::server()) {
+        eprintln!("error: {error}");
+        return ExitCode::FAILURE;
+    }
 
     let result = run(Config {
         api_url: cli.api_url,
