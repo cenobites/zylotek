@@ -225,7 +225,9 @@ fn assert_stdout_has_banner(path: &Path) {
 
 // --- sync -----------------------------------------------------------------------------
 
-use zylotek_domain::woods::{entities::Wood, repositories::WoodRepository};
+use zylotek_domain::woods::{
+    entities::Wood, repositories::WoodRepository, value_objects::Measurement,
+};
 use zylotek_infrastructure::persistence::{build_db, woods::repositories::PostgresWoodRepository};
 
 fn database_in(dir: &TempDir) -> String {
@@ -243,13 +245,110 @@ fn stored_woods(database_url: &str) -> Vec<Wood> {
         })
 }
 
-fn sync(database_url: &str) -> Command {
+fn sync_online(database_url: &str) -> Command {
     let mut command = cli();
     command
         .current_dir(WORKSPACE_ROOT)
         .env_remove("ZYLOTEK_DATABASE_URL")
         .args(["--database-url", database_url, "sync", "run"]);
     command
+}
+
+/// The CSV alone: the tests must not depend on the live LPF site.
+fn sync(database_url: &str) -> Command {
+    let mut command = sync_online(database_url);
+    command.arg("--offline");
+    command
+}
+
+/// A stand-in for the LPF site, served from its own thread so the tests can keep using
+/// blocking code. It stops when dropped.
+struct Site {
+    listing_url: String,
+    _stop: std::sync::mpsc::Sender<()>,
+}
+
+impl Site {
+    /// Lists `species` (id and page) on the first listing page and nothing on the others.
+    fn with_species(species: &[(u64, &'static str)]) -> Self {
+        Self::start(species.to_vec(), 200)
+    }
+
+    /// Answers every request with `status`.
+    fn failing(status: u16) -> Self {
+        Self::start(Vec::new(), status)
+    }
+
+    fn start(species: Vec<(u64, &'static str)>, status: u16) -> Self {
+        use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
+
+        let (uri_sender, uri) = std::sync::mpsc::channel();
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let server = MockServer::start().await;
+                    let rows: String = species
+                        .iter()
+                        .map(|(id, _)| {
+                            format!(
+                                r#"<tr><td><a href="{}/especie?especieestudadaid={id}">Genus species{id}</a></td></tr>"#,
+                                server.uri()
+                            )
+                        })
+                        .collect();
+                    let table = |rows: &str| {
+                        format!(r#"<table id="caracteristicaList"><tbody>{rows}</tbody></table>"#)
+                    };
+                    let html = |body: String| {
+                        ResponseTemplate::new(status).set_body_string(body)
+                    };
+
+                    // The first mock that matches wins: page 0, then every other page.
+                    Mock::given(matchers::path("/madeiras"))
+                        .and(matchers::query_param("start", "0"))
+                        .respond_with(html(table(&rows)))
+                        .mount(&server)
+                        .await;
+                    Mock::given(matchers::path("/madeiras"))
+                        .respond_with(html(table("")))
+                        .mount(&server)
+                        .await;
+                    for (id, page) in species {
+                        Mock::given(matchers::path("/especie"))
+                            .and(matchers::query_param("especieestudadaid", id.to_string()))
+                            .respond_with(html(page.to_owned()))
+                            .mount(&server)
+                            .await;
+                    }
+
+                    uri_sender.send(server.uri()).unwrap();
+                    tokio::task::spawn_blocking(move || stopped.recv()).await.unwrap().ok();
+                });
+        });
+
+        Self {
+            listing_url: format!("{}/madeiras", uri.recv().unwrap()),
+            _stop: stop,
+        }
+    }
+}
+
+/// The species page the sync crate's tests use: Astronium lecointei.
+const SPECIES_PAGE: &str = include_str!("../../zylotek-sync/tests/fixtures/species.html");
+
+/// A CSV with only the columns this test needs; the importer accepts any subset.
+const TWO_SPECIES_CSV: &str = "id_especie;nome_cientifico;nome_popular_1;familia;densidade_basica\r\n\
+     21;Astronium lecointei;MUIRACATIARA-RAJADA;Anacardiaceae;0,71\r\n\
+     30;Cedrela fissilis;CEDRO;Meliaceae;0,40\r\n";
+
+fn two_species_csv(dir: &TempDir) -> std::path::PathBuf {
+    let csv = dir.path().join("two.csv");
+    fs::write(&csv, TWO_SPECIES_CSV).unwrap();
+    csv
 }
 
 #[test]
@@ -265,7 +364,7 @@ fn sync_reads_the_bundled_csv_by_default_and_stores_one_wood_per_species() {
         ))
         .stdout(predicate::str::contains("Stored 225 new woods"))
         .stdout(predicate::str::contains(
-            "skipped 44 whose scientific name is already registered",
+            "updated 0, left 0 as they were, skipped 44 further lots of a species already read",
         ));
 
     let woods = stored_woods(&url);
@@ -292,18 +391,9 @@ fn syncing_twice_stores_nothing_new() {
     sync(&url)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Stored 0 new woods"))
-        .stdout(predicate::str::contains("skipped 269"));
-
-    assert_eq!(stored_woods(&url).len(), 225);
-}
-
-#[test]
-fn an_explicit_file_source_is_the_same_as_the_default() {
-    let dir = TempDir::new().unwrap();
-    let url = database_in(&dir);
-
-    sync(&url).args(["--source", "file"]).assert().success();
+        .stdout(predicate::str::contains(
+            "updated 0, left 225 as they were, skipped 44",
+        ));
 
     assert_eq!(stored_woods(&url).len(), 225);
 }
@@ -329,7 +419,9 @@ fn bad_rows_are_reported_and_fail_the_run_but_good_rows_are_still_stored() {
         .code(1)
         .stdout(predicate::str::contains("Stored 1 new woods"))
         .stderr(predicate::str::contains("rejected line 3 (id 2)"))
-        .stderr(predicate::str::contains("1 rows could not be imported"));
+        .stderr(predicate::str::contains(
+            "1 rows or pages could not be imported",
+        ));
 
     assert_eq!(stored_woods(&url).len(), 1);
 }
@@ -357,14 +449,208 @@ fn a_missing_or_unusable_file_fails_without_touching_the_database() {
 }
 
 #[test]
-fn an_unknown_source_is_a_usage_error() {
+fn the_old_source_option_is_gone() {
+    let dir = TempDir::new().unwrap();
+
+    for source in ["file", "web"] {
+        sync(&database_in(&dir))
+            .args(["--source", source])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("unexpected argument '--source'"));
+    }
+}
+
+#[test]
+fn offline_and_a_listing_url_contradict_each_other() {
     let dir = TempDir::new().unwrap();
 
     sync(&database_in(&dir))
-        .args(["--source", "ftp"])
+        .args(["--listing-url", "http://localhost:1/madeiras"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("invalid value 'ftp'"));
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[test]
+fn the_web_fills_in_what_the_csv_lacks_and_never_overrides_it() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+    let site = Site::with_species(&[(21, SPECIES_PAGE)]);
+
+    sync_online(&url)
+        .arg("--file")
+        .arg(two_species_csv(&dir))
+        .args(["--listing-url", &site.listing_url])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Scraped 1 species pages from the LPF web site (0 failed)",
+        ))
+        .stdout(predicate::str::contains(
+            "Completed 1 species from their web pages; 0 more exist only on the web",
+        ))
+        .stdout(predicate::str::contains("Stored 2 new woods"));
+
+    let woods = stored_woods(&url);
+    let find = |name: &str| {
+        woods
+            .iter()
+            .find(|w| w.scientific_name().as_str() == name)
+            .unwrap()
+    };
+    let astronium = find("Astronium lecointei").details();
+    // From the CSV: the row's own name, id and density.
+    assert_eq!(
+        find("Astronium lecointei").name().as_str(),
+        "Muiracatiara-rajada"
+    );
+    assert_eq!(
+        astronium.physical_properties.density.basic.unwrap().value(),
+        0.71
+    );
+    // From the page: what the CSV has no column for.
+    assert!(astronium.images.main.is_some());
+    assert!(!astronium.common_names.is_empty());
+    assert_eq!(
+        astronium
+            .source
+            .as_ref()
+            .unwrap()
+            .page_url
+            .as_str()
+            .split('?')
+            .next()
+            .unwrap(),
+        format!("{}/especie", site.listing_url.trim_end_matches("/madeiras"))
+    );
+    // A species the page does not cover stays as the CSV has it.
+    let cedrela = find("Cedrela fissilis").details();
+    assert!(cedrela.images.main.is_none());
+    assert_eq!(cedrela.source.as_ref().unwrap().species_id, 30);
+}
+
+#[test]
+fn syncing_again_updates_a_stored_wood_and_never_forgets_what_an_earlier_run_learned() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+    let csv = two_species_csv(&dir);
+    let image_of = |name: &str| {
+        stored_woods(&url)
+            .iter()
+            .find(|w| w.scientific_name().as_str() == name)
+            .unwrap()
+            .details()
+            .images
+            .main
+            .clone()
+    };
+
+    // First the CSV alone: no images.
+    sync(&url).arg("--file").arg(&csv).assert().success();
+    assert!(image_of("Astronium lecointei").is_none());
+
+    // A later run with the site completes the stored wood instead of skipping it.
+    let site = Site::with_species(&[(21, SPECIES_PAGE)]);
+    sync_online(&url)
+        .arg("--file")
+        .arg(&csv)
+        .args(["--listing-url", &site.listing_url])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("updated 1, left 1 as they were"));
+    let image = image_of("Astronium lecointei");
+    assert!(image.is_some());
+    assert_eq!(stored_woods(&url).len(), 2);
+
+    // And a run that cannot reach the site does not wipe it.
+    sync(&url).arg("--file").arg(&csv).assert().success();
+    assert_eq!(image_of("Astronium lecointei"), image);
+}
+
+#[test]
+fn changed_csv_values_replace_the_stored_ones() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+    let csv = two_species_csv(&dir);
+    sync(&url).arg("--file").arg(&csv).assert().success();
+    fs::write(&csv, TWO_SPECIES_CSV.replace("0,71", "0,95")).unwrap();
+
+    sync(&url)
+        .arg("--file")
+        .arg(&csv)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("updated 1, left 1 as they were"));
+
+    let woods = stored_woods(&url);
+    let astronium = woods
+        .iter()
+        .find(|w| w.scientific_name().as_str() == "Astronium lecointei")
+        .unwrap();
+    assert_eq!(
+        astronium
+            .details()
+            .physical_properties
+            .density
+            .basic
+            .unwrap()
+            .value(),
+        0.95
+    );
+}
+
+#[test]
+fn species_only_the_web_has_are_stored_too() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+    let csv = dir.path().join("cedro.csv");
+    fs::write(
+        &csv,
+        "id_especie;nome_cientifico;nome_popular_1\r\n30;Cedrela fissilis;CEDRO\r\n",
+    )
+    .unwrap();
+    let site = Site::with_species(&[(21, SPECIES_PAGE)]);
+
+    sync_online(&url)
+        .arg("--file")
+        .arg(&csv)
+        .args(["--listing-url", &site.listing_url])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Completed 0 species from their web pages; 1 more exist only on the web",
+        ));
+
+    let names: Vec<_> = stored_woods(&url)
+        .iter()
+        .map(|w| w.scientific_name().to_string())
+        .collect();
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert!(names.contains(&"Astronium lecointei".to_owned()));
+}
+
+#[test]
+fn a_site_that_fails_is_reported_but_the_csv_is_still_stored() {
+    let dir = TempDir::new().unwrap();
+    let url = database_in(&dir);
+    let site = Site::failing(503);
+
+    sync_online(&url)
+        .arg("--file")
+        .arg(two_species_csv(&dir))
+        .args(["--listing-url", &site.listing_url])
+        .assert()
+        .failure()
+        .code(1)
+        .stdout(predicate::str::contains("Stored 2 new woods"))
+        .stderr(predicate::str::contains("web page failed"))
+        .stderr(predicate::str::contains("503"))
+        .stderr(predicate::str::contains("could not be imported"));
+
+    let woods = stored_woods(&url);
+    assert_eq!(woods.len(), 2);
+    assert!(woods.iter().all(|w| w.details().images.main.is_none()));
 }
 
 #[test]
@@ -375,7 +661,7 @@ fn the_database_url_can_come_from_the_environment() {
     cli()
         .current_dir(WORKSPACE_ROOT)
         .env("ZYLOTEK_DATABASE_URL", &url)
-        .args(["sync", "run"])
+        .args(["sync", "run", "--offline"])
         .assert()
         .success();
 

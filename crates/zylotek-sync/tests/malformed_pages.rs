@@ -1,8 +1,8 @@
 //! Malformed species pages must produce an error, never a panic.
 //!
 //! The ignored tests are bugs found by `fuzz/fuzz_targets/parse_wood.rs`: the parsers
-//! `unwrap()` and index into page content. In a sync run a panic aborts the spawned task,
-//! so one bad page fails the whole run with an opaque join error instead of naming the page.
+//! `unwrap()` and index into page content. In a sync run a panic aborts the spawned task;
+//! the run reports that page as failed, but with an opaque join error instead of a reason.
 
 use std::panic::catch_unwind;
 

@@ -152,6 +152,7 @@ pub fn wood(name: &str, scientific_name: &str) -> Wood {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Operation {
     ExistsByScientificName,
+    FindByScientificName,
     FindById,
     List,
     Count,
@@ -217,6 +218,20 @@ impl WoodRepository for InMemoryWoodRepository {
             .unwrap()
             .values()
             .any(|wood| wood.scientific_name().as_str() == scientific_name))
+    }
+
+    async fn find_by_scientific_name(
+        &self,
+        scientific_name: &str,
+    ) -> Result<Option<Wood>, RepositoryError> {
+        self.check(Operation::FindByScientificName)?;
+        Ok(self
+            .woods
+            .lock()
+            .unwrap()
+            .values()
+            .find(|wood| wood.scientific_name().as_str() == scientific_name)
+            .cloned())
     }
 
     async fn find_by_id(&self, id: WoodId) -> Result<Option<Wood>, RepositoryError> {

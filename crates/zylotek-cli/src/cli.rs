@@ -78,18 +78,19 @@ mod tests {
     use super::*;
     use crate::commands::{
         auth::{AuthCommand, ClientCommand},
-        sync::{DEFAULT_FILE, Source},
+        sync::DEFAULT_FILE,
     };
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from(std::iter::once("zylotek").chain(args.iter().copied()))
     }
 
-    fn sync(source: Source, file: &str) -> Commands {
+    fn sync(file: &str, listing_url: Option<&str>, offline: bool) -> Commands {
         Commands::Sync(SyncCommand::Run {
             config: None,
-            source,
             file: file.into(),
+            listing_url: listing_url.map(str::to_owned),
+            offline,
         })
     }
 
@@ -109,7 +110,7 @@ mod tests {
             (&["db", "setup"][..], Commands::Db(DbCommand::Setup)),
             (&["db", "migrate"], Commands::Db(DbCommand::Migrate)),
             (&["api", "run"], Commands::Api(ApiCommand::Run)),
-            (&["sync", "run"], sync(Source::File, DEFAULT_FILE)),
+            (&["sync", "run"], sync(DEFAULT_FILE, None, false)),
         ];
 
         for (args, expected) in cases {
@@ -118,31 +119,33 @@ mod tests {
     }
 
     #[test]
-    fn sync_reads_the_bundled_file_unless_told_otherwise() {
+    fn sync_reads_the_bundled_file_and_the_live_site_unless_told_otherwise() {
         let cases = [
-            (&["sync", "run"][..], sync(Source::File, DEFAULT_FILE)),
-            (
-                &["sync", "run", "--source", "web"],
-                sync(Source::Web, DEFAULT_FILE),
-            ),
-            (
-                &["sync", "run", "-s", "file"],
-                sync(Source::File, DEFAULT_FILE),
-            ),
+            (&["sync", "run"][..], sync(DEFAULT_FILE, None, false)),
             (
                 &["sync", "run", "--file", "woods.csv"],
-                sync(Source::File, "woods.csv"),
+                sync("woods.csv", None, false),
             ),
             (
-                &["sync", "run", "-s", "web", "-f", "woods.csv"],
-                sync(Source::Web, "woods.csv"),
+                &["sync", "run", "--offline", "-f", "woods.csv"],
+                sync("woods.csv", None, true),
+            ),
+            (
+                &[
+                    "sync",
+                    "run",
+                    "--listing-url",
+                    "http://localhost:1/madeiras",
+                ],
+                sync(DEFAULT_FILE, Some("http://localhost:1/madeiras"), false),
             ),
             (
                 &["sync", "run", "--config", "lpf.toml"],
                 Commands::Sync(SyncCommand::Run {
                     config: Some("lpf.toml".into()),
-                    source: Source::File,
                     file: DEFAULT_FILE.into(),
+                    listing_url: None,
+                    offline: false,
                 }),
             ),
         ];
@@ -177,6 +180,7 @@ mod tests {
             &["db", "drop"],
             &["sync", "run", "--nope"],
             &["sync", "run", "--source", "ftp"],
+            &["sync", "run", "--offline", "--listing-url", "http://x/y"],
             &["api", "run", "extra"],
         ] {
             assert!(parse(args).is_err(), "{args:?}");

@@ -10,6 +10,12 @@ pub trait WoodRepository: Send + Sync {
         scientific_name: &str,
     ) -> Result<bool, RepositoryError>;
 
+    /// The wood registered under exactly this scientific name, if any.
+    async fn find_by_scientific_name(
+        &self,
+        scientific_name: &str,
+    ) -> Result<Option<Wood>, RepositoryError>;
+
     async fn find_by_id(&self, id: WoodId) -> Result<Option<Wood>, RepositoryError>;
 
     /// Woods ordered by scientific name.

@@ -3,20 +3,25 @@ use std::{
     sync::Arc,
 };
 
-use clap::{Subcommand, ValueEnum};
+use clap::Subcommand;
 use zylotek_application::woods::{
     create_wood::{CreateWood, CreateWoodCommand},
     handlers::WoodEventHandler,
     import_woods::{ImportReport, ImportWoods},
+    update_wood::UpdateWood,
 };
 use zylotek_domain::woods::{
-    events::WoodEvent, repositories::WoodRepository, services::WoodCreationService,
+    events::WoodEvent,
+    repositories::WoodRepository,
+    services::{WoodCreationService, WoodUpdateService},
 };
 use zylotek_infrastructure::{
     event_bus::tokio::{TokioEventPublisher, run_event_handler},
     persistence::{build_db, woods::repositories::PostgresWoodRepository},
 };
-use zylotek_sync::{OpenData, RejectedRow, ScrapedWood, Syncronizer, parse_open_data};
+use zylotek_sync::{
+    OpenData, RejectedRow, Scrape, ScrapedWood, Syncronizer, merge, parse_open_data,
+};
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -24,58 +29,73 @@ type Error = Box<dyn std::error::Error + Send + Sync>;
 pub const DEFAULT_FILE: &str =
     "toasty/fixtures/dados_abertos_banco_de_dados_de_madeiras_brasileiras_lpfsfb.csv";
 
-#[derive(ValueEnum, Debug, PartialEq, Eq, Clone, Copy)]
-pub enum Source {
-    /// Import the open-data CSV
-    File,
-    /// Scrape the LPF web site
-    Web,
-}
-
 #[derive(Subcommand, Debug, PartialEq, Eq, Clone)]
 pub enum SyncCommand {
-    /// Load woods from a source and store them in the database
+    /// Import the open-data CSV, complete it from the LPF web site, and store the woods
     Run {
         #[arg(short, long)]
         config: Option<String>,
 
-        /// Where the woods come from
-        #[arg(short, long, value_enum, default_value_t = Source::File)]
-        source: Source,
-
-        /// The CSV to import when the source is `file`
+        /// The open-data CSV
         #[arg(short, long, default_value = DEFAULT_FILE)]
         file: PathBuf,
+
+        /// The LPF listing to scrape for what the CSV lacks (images, workabilities, ...)
+        #[arg(short, long)]
+        listing_url: Option<String>,
+
+        /// Import the CSV alone, without visiting the web site
+        #[arg(long, conflicts_with = "listing_url")]
+        offline: bool,
     },
 }
 
 pub fn execute(cmd: &SyncCommand, database_url: &str) -> Result<(), Error> {
     match cmd {
-        SyncCommand::Run { source, file, .. } => cmd_run(*source, file, database_url),
+        SyncCommand::Run {
+            file,
+            listing_url,
+            offline,
+            ..
+        } => cmd_run(file, !offline, listing_url.as_deref(), database_url),
     }
 }
 
-fn cmd_run(source: Source, file: &Path, database_url: &str) -> Result<(), Error> {
-    let (woods, rejected, origin) = match source {
-        Source::File => {
-            let OpenData { woods, rejected } = read_file(file)?;
-            (woods, rejected, file.display().to_string())
-        }
-        Source::Web => (
-            Syncronizer::new().build().run()?,
-            Vec::new(),
-            "the LPF web site".to_owned(),
-        ),
+fn cmd_run(
+    file: &Path,
+    use_web: bool,
+    listing_url: Option<&str>,
+    database_url: &str,
+) -> Result<(), Error> {
+    let OpenData { woods, rejected } = read_file(file)?;
+    let read = woods.len() + rejected.len();
+
+    let (woods, scrape_failures) = if use_web {
+        let scrape = scrape(listing_url)?;
+        let scraped = scrape.woods.len();
+        let merged = merge(woods, scrape.woods);
+        println!(
+            "Scraped {scraped} species pages from the LPF web site ({} failed)",
+            scrape.failures.len()
+        );
+        println!(
+            "Completed {} species from their web pages; {} more exist only on the web",
+            merged.enriched, merged.web_only
+        );
+        (merged.woods, scrape.failures)
+    } else {
+        (woods, Vec::new())
     };
 
-    let read = woods.len() + rejected.len();
     let report = save(woods, database_url)?;
 
-    println!("Read {read} rows from {origin}");
+    println!("Read {read} rows from {}", file.display());
     println!(
-        "Stored {} new woods in {database_url}; skipped {} whose scientific name is already registered",
+        "Stored {} new woods in {database_url}; updated {}, left {} as they were, skipped {} further lots of a species already read",
         report.created,
-        report.already_registered.len()
+        report.updated,
+        report.unchanged,
+        report.duplicates.len()
     );
     for row in &rejected {
         eprintln!(
@@ -85,14 +105,26 @@ fn cmd_run(source: Source, file: &Path, database_url: &str) -> Result<(), Error>
             row.reason
         );
     }
+    for failure in &scrape_failures {
+        eprintln!("web page failed {}: {}", failure.url, failure.reason);
+    }
     for failure in &report.failed {
         eprintln!("failed {}: {}", failure.scientific_name, failure.error);
     }
 
-    match rejected.len() + report.failed.len() {
+    match rejected.len() + scrape_failures.len() + report.failed.len() {
         0 => Ok(()),
-        problems => Err(format!("{problems} rows could not be imported").into()),
+        problems => Err(format!("{problems} rows or pages could not be imported").into()),
     }
+}
+
+fn scrape(listing_url: Option<&str>) -> Result<Scrape, Error> {
+    let synchronizer = match listing_url {
+        Some(url) => Syncronizer::new().with_listing_url(url),
+        None => Syncronizer::new(),
+    };
+
+    synchronizer.build().run()
 }
 
 fn id_of(row: &RejectedRow) -> &str {
@@ -105,7 +137,7 @@ fn read_file(file: &Path) -> Result<OpenData, Error> {
     Ok(parse_open_data(&bytes)?)
 }
 
-/// Stores the woods through the same `CreateWood` use case the API uses, so events fire and
+/// Creates or updates the woods through the same use cases the API uses, so events fire and
 /// the scientific-name rule holds.
 fn save(woods: Vec<ScrapedWood>, database_url: &str) -> Result<ImportReport, Error> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -120,11 +152,19 @@ fn save(woods: Vec<ScrapedWood>, database_url: &str) -> Result<ImportReport, Err
             publisher.subscribe(),
             WoodEventHandler::new(),
         ));
-        let import = ImportWoods::new(CreateWood::new(
-            publisher.clone(),
-            repository.clone(),
-            WoodCreationService::new(repository),
-        ));
+        let import = ImportWoods::new(
+            CreateWood::new(
+                publisher.clone(),
+                repository.clone(),
+                WoodCreationService::new(repository.clone()),
+            ),
+            UpdateWood::new(
+                publisher.clone(),
+                repository.clone(),
+                WoodUpdateService::new(repository.clone()),
+            ),
+            repository,
+        );
 
         let report = import
             .execute(woods.into_iter().map(|wood| CreateWoodCommand {

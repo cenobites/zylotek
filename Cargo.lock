@@ -4745,6 +4745,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "wiremock",
  "zylotek-api",
  "zylotek-application",
  "zylotek-domain",

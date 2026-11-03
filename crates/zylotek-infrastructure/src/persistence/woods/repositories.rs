@@ -33,6 +33,22 @@ impl WoodRepository for PostgresWoodRepository {
         Ok(exists.is_some())
     }
 
+    async fn find_by_scientific_name(
+        &self,
+        scientific_name: &str,
+    ) -> Result<Option<domain::Wood>, RepositoryError> {
+        let mut db = self.db.clone();
+
+        let model: Option<Wood> =
+            Wood::filter(Wood::fields().scientific_name().eq(scientific_name))
+                .first()
+                .exec(&mut db)
+                .await
+                .map_err(database_error)?;
+
+        model.map(to_domain).transpose()
+    }
+
     async fn find_by_id(
         &self,
         id: domain::WoodId,
@@ -194,6 +210,27 @@ mod tests {
         assert!(
             repository
                 .find_by_id(domain::WoodId::new())
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn find_by_scientific_name_returns_the_stored_wood_or_nothing() {
+        let repository = repository().await;
+        let stored = wood("Aroeira", "Myracrodruon urundeuva");
+        repository.save(&stored).await.unwrap();
+
+        let found = repository
+            .find_by_scientific_name("Myracrodruon urundeuva")
+            .await
+            .unwrap();
+
+        assert_eq!(found.unwrap().id(), stored.id());
+        assert!(
+            repository
+                .find_by_scientific_name("Myracrodruon")
                 .await
                 .unwrap()
                 .is_none()
