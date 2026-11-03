@@ -1,13 +1,6 @@
 //! The compiled binary, driven as a user would.
 
-use std::{
-    fs,
-    io::{Read, Write},
-    net::{TcpListener, TcpStream},
-    path::Path,
-    process::{Child, Command as Process, Stdio},
-    time::{Duration, Instant},
-};
+use std::fs;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -38,7 +31,7 @@ fn lists_the_subcommands_in_its_help() {
         .stdout(predicate::str::contains("Usage:"))
         .stdout(predicate::str::contains("db"))
         .stdout(predicate::str::contains("sync"))
-        .stdout(predicate::str::contains("api"));
+        .stdout(predicate::str::contains("auth"));
 }
 
 #[test]
@@ -57,11 +50,6 @@ fn nested_help_describes_each_command() {
         .success()
         .stdout(predicate::str::contains("migrate"));
     cli()
-        .args(["api", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("run"));
-    cli()
         .args(["sync", "run", "--help"])
         .assert()
         .success()
@@ -69,12 +57,41 @@ fn nested_help_describes_each_command() {
 }
 
 #[test]
-fn rejects_unknown_commands_with_a_usage_error() {
+fn reports_unknown_commands_that_have_no_executable() {
     cli()
         .arg("frobnicate")
+        .env("PATH", "")
         .assert()
-        .code(2)
-        .stderr(predicate::str::contains("unrecognized subcommand"));
+        .code(1)
+        .stderr(predicate::str::contains("unknown command `frobnicate`"))
+        .stderr(predicate::str::contains("zylotek-frobnicate"));
+}
+
+#[test]
+fn refuses_subcommand_names_that_look_like_paths() {
+    cli()
+        .arg("../evil")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("invalid subcommand"));
+}
+
+#[cfg(unix)]
+#[test]
+fn unknown_commands_run_the_zylotek_executable_with_the_rest_of_the_arguments() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let script = dir.path().join("zylotek-fake");
+    fs::write(&script, "#!/bin/sh\necho \"fake: $*\"\nexit 7\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+    cli()
+        .env("PATH", dir.path())
+        .args(["fake", "--listen", "0.0.0.0:1"])
+        .assert()
+        .code(7)
+        .stdout("fake: --listen 0.0.0.0:1\n");
 }
 
 fn project_with_config() -> TempDir {
@@ -133,94 +150,6 @@ fn db_commands_fail_without_a_toasty_config() {
         .args(["db", "migrate"])
         .assert()
         .failure();
-}
-
-fn health(port: u16) -> Option<String> {
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).ok()?;
-    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
-    stream
-        .write_all(b"GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n")
-        .ok()?;
-    let mut response = String::new();
-    stream.read_to_string(&mut response).ok()?;
-    Some(response)
-}
-
-fn wait_until_serving(child: &mut Child, port: u16) -> String {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if let Some(response) = health(port) {
-            return response;
-        }
-        assert!(
-            child.try_wait().unwrap().is_none(),
-            "the server exited early"
-        );
-        assert!(
-            Instant::now() < deadline,
-            "the server never answered /health"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-/// `api run` binds the fixed port 8080, so this test steps aside when it is taken.
-#[test]
-#[cfg(unix)]
-fn api_run_serves_health_and_stops_on_sigterm() {
-    let _port = PORT_8080
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if TcpListener::bind(("0.0.0.0", 8080)).is_err() {
-        eprintln!("skipping: port 8080 is in use");
-        return;
-    }
-    let output = TempDir::new().unwrap();
-    let stdout = fs::File::create(output.path().join("stdout")).unwrap();
-    let mut child = Process::new(assert_cmd::cargo::cargo_bin("zylotek-cli"))
-        .args(["api", "run"])
-        .env("ZYLOTEK_DATABASE_URL", "sqlite::memory:")
-        .stdout(stdout)
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-
-    let response = wait_until_serving(&mut child, 8080);
-    assert!(
-        response.starts_with("HTTP/1.0 200") || response.starts_with("HTTP/1.1 200"),
-        "{response}"
-    );
-    assert!(response.ends_with("OK"));
-
-    let status = Process::new("kill")
-        .args(["-TERM", &child.id().to_string()])
-        .status()
-        .unwrap();
-    assert!(status.success());
-    let exit = wait_with_timeout(&mut child, Duration::from_secs(10));
-
-    assert!(exit.success(), "graceful shutdown exits 0, got {exit:?}");
-    assert_stdout_has_banner(&output.path().join("stdout"));
-}
-
-fn wait_with_timeout(child: &mut Child, timeout: Duration) -> std::process::ExitStatus {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(status) = child.try_wait().unwrap() {
-            return status;
-        }
-        if Instant::now() > deadline {
-            child.kill().unwrap();
-            panic!("the server did not stop after SIGTERM");
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-fn assert_stdout_has_banner(path: &Path) {
-    let stdout = fs::read_to_string(path).unwrap();
-
-    assert!(stdout.contains("Version: 0.1.0"), "{stdout}");
 }
 
 // --- sync -----------------------------------------------------------------------------
@@ -670,11 +599,6 @@ fn the_database_url_can_come_from_the_environment() {
 
 // --- OAuth -----------------------------------------------------------------------------
 
-use std::sync::Mutex;
-
-/// `api run` binds the fixed port 8080, so the tests that start it take turns.
-static PORT_8080: Mutex<()> = Mutex::new(());
-
 fn oauth_files(dir: &TempDir) -> (String, String) {
     (
         dir.path().join("key.pem").display().to_string(),
@@ -808,195 +732,4 @@ fn auth_client_list_says_so_when_there_are_no_clients() {
         .assert()
         .success()
         .stdout(predicate::str::contains("No clients yet"));
-}
-
-/// One HTTP/1.0 exchange; returns the status code and the body.
-fn http(method: &str, path: &str, headers: &[(&str, &str)], body: &str) -> (u16, String) {
-    let mut stream = TcpStream::connect(("127.0.0.1", 8080)).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .unwrap();
-    let mut request = format!(
-        "{method} {path} HTTP/1.0\r\nHost: localhost\r\nContent-Length: {}\r\n",
-        body.len()
-    );
-    for (name, value) in headers {
-        request += &format!("{name}: {value}\r\n");
-    }
-    stream
-        .write_all(format!("{request}\r\n{body}").as_bytes())
-        .unwrap();
-    let mut response = String::new();
-    stream.read_to_string(&mut response).unwrap();
-    let status = response.split(' ').nth(1).unwrap().parse().unwrap();
-
-    (
-        status,
-        response
-            .split_once("\r\n\r\n")
-            .map(|(_, body)| body.to_owned())
-            .unwrap_or_default(),
-    )
-}
-
-/// `api run` as a child process, stopped when dropped.
-struct Api(Child);
-
-impl Drop for Api {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-fn start_api(dir: &TempDir, extra: &[&str]) -> Api {
-    let mut child = Process::new(assert_cmd::cargo::cargo_bin("zylotek-cli"))
-        .current_dir(dir.path())
-        .env("ZYLOTEK_DATABASE_URL", "sqlite::memory:")
-        .env_remove("ZYLOTEK_OAUTH_SIGNING_KEY")
-        .env_remove("ZYLOTEK_OAUTH_CLIENTS")
-        .args(extra)
-        .args(["api", "run"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    wait_until_serving(&mut child, 8080);
-
-    Api(child)
-}
-
-const WOOD: &str = r#"{"name":"Aroeira","scientific_name":"Myracrodruon urundeuva"}"#;
-
-#[test]
-#[cfg(unix)]
-fn api_run_demands_a_token_for_writes_once_a_key_and_a_client_exist() {
-    let _port = PORT_8080
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if TcpListener::bind(("0.0.0.0", 8080)).is_err() {
-        eprintln!("skipping: port 8080 is in use");
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    auth(&dir).args(["auth", "keygen"]).assert().success();
-    let created = auth(&dir)
-        .args(["auth", "client", "create", "importer"])
-        .assert()
-        .success();
-    let stdout = String::from_utf8(created.get_output().stdout.clone()).unwrap();
-    let secret = stdout
-        .lines()
-        .find_map(|l| l.strip_prefix("client_secret: "))
-        .unwrap()
-        .to_owned();
-    let (key, clients) = oauth_files(&dir);
-    let _api = start_api(
-        &dir,
-        &["--oauth-signing-key", &key, "--oauth-clients", &clients],
-    );
-    let json = [("Content-Type", "application/json")];
-
-    // Reads are open; a write without a token is challenged.
-    assert_eq!(http("GET", "/api/v1/woods", &[], "").0, 200);
-    let (status, body) = http("POST", "/api/v1/woods", &json, WOOD);
-    assert_eq!((status, body.contains("UNAUTHORIZED")), (401, true));
-
-    // The client trades its secret for a token and writes with it.
-    let basic = format!("Basic {}", base64_encode(&format!("importer:{secret}")));
-    let (status, body) = http(
-        "POST",
-        "/oauth/token",
-        &[
-            ("Authorization", &basic),
-            ("Content-Type", "application/x-www-form-urlencoded"),
-        ],
-        "grant_type=client_credentials",
-    );
-    assert_eq!(status, 200, "{body}");
-    let token: serde_json::Value = serde_json::from_str(&body).unwrap();
-    let bearer = format!("Bearer {}", token["access_token"].as_str().unwrap());
-    let (status, body) = http(
-        "POST",
-        "/api/v1/woods",
-        &[("Authorization", &bearer), json[0]],
-        WOOD,
-    );
-    assert_eq!(status, 201, "{body}");
-    let (_, listing) = http("GET", "/api/v1/woods", &[], "");
-    assert!(listing.contains("Myracrodruon urundeuva"));
-
-    // A wrong secret gets nothing.
-    let wrong = format!("Basic {}", base64_encode("importer:wrong"));
-    let (status, _) = http(
-        "POST",
-        "/oauth/token",
-        &[
-            ("Authorization", &wrong),
-            ("Content-Type", "application/x-www-form-urlencoded"),
-        ],
-        "grant_type=client_credentials",
-    );
-    assert_eq!(status, 401);
-}
-
-#[test]
-#[cfg(unix)]
-fn api_run_without_oauth_files_serves_reads_and_refuses_writes() {
-    let _port = PORT_8080
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if TcpListener::bind(("0.0.0.0", 8080)).is_err() {
-        eprintln!("skipping: port 8080 is in use");
-        return;
-    }
-    let dir = TempDir::new().unwrap();
-    let _api = start_api(&dir, &[]);
-
-    let (read, _) = http("GET", "/api/v1/woods", &[], "");
-    let (write, body) = http(
-        "POST",
-        "/api/v1/woods",
-        &[("Content-Type", "application/json")],
-        WOOD,
-    );
-
-    assert_eq!(read, 200);
-    assert_eq!(write, 503);
-    assert!(body.contains("OAuth is not configured"), "{body}");
-}
-
-#[test]
-fn api_run_refuses_to_start_with_half_an_oauth_setup() {
-    let dir = TempDir::new().unwrap();
-    let (key, _) = oauth_files(&dir);
-    auth(&dir).args(["auth", "keygen"]).assert().success();
-
-    // A key but no clients file: given by neither flag nor default name.
-    cli()
-        .current_dir(dir.path())
-        .env_remove("ZYLOTEK_OAUTH_CLIENTS")
-        .env_remove("ZYLOTEK_OAUTH_SIGNING_KEY")
-        .args(["--oauth-signing-key", &key, "api", "run"])
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("only half configured"));
-}
-
-fn base64_encode(text: &str) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    for chunk in text.as_bytes().chunks(3) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for index in 0..4 {
-            if index <= chunk.len() {
-                out.push(ALPHABET[((n >> (18 - 6 * index)) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }

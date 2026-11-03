@@ -21,7 +21,7 @@ pub mod server;
 pub mod state;
 pub mod woods;
 
-pub use server::cli;
+pub use server::serve;
 
 #[cfg(test)]
 mod test_support;

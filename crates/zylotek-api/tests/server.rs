@@ -1,4 +1,4 @@
-//! The router served over a real TCP socket, as `api run` serves it.
+//! The router served over a real TCP socket, as `zylotek-api` serves it.
 
 mod common;
 

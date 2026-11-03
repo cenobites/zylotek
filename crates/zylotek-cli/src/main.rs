@@ -4,7 +4,7 @@ mod commands;
 use clap::Parser;
 
 use cli::{Cli, Commands};
-use commands::{api, auth, db, sync};
+use commands::{auth, db, external, sync};
 
 fn main() {
     let cli = Cli::parse();
@@ -13,9 +13,9 @@ fn main() {
     let result = match cli.command {
         Some(Commands::Db(cmd)) => db::execute(&cmd),
         Some(Commands::Sync(cmd)) => sync::execute(&cmd, &cli.database_url),
-        Some(Commands::Api(cmd)) => api::execute(&cmd, &cli.database_url, &oauth),
         Some(Commands::Auth(cmd)) => auth::execute(&cmd, &oauth),
-        _ => {
+        Some(Commands::External(args)) => external::execute(&args),
+        None => {
             let _ = Cli::parse_from(["zylotek", "--help"]);
             Ok(())
         }

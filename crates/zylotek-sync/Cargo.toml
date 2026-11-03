@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 zylotek-domain = { workspace = true }
 log = { workspace = true }
+simple_logger = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }

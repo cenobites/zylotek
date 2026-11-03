@@ -1,5 +1,5 @@
 //! Process entry point: binds the fixed port, installs logging and waits for a signal.
-//! Covered by the CLI's binary tests rather than unit tests.
+//! Covered by the binary tests in `tests/binary.rs` rather than unit tests.
 
 use std::sync::Arc;
 
@@ -38,14 +38,8 @@ async fn run(database_url: &str, auth: Auth) -> anyhow::Result<()> {
 }
 
 /// Serves the API on port 8080 until a termination signal arrives.
-pub fn cli(database_url: &str, auth: Auth) -> Result<(), ApiError> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| ApiError::Internal(anyhow::Error::new(e)))?;
-
-    rt.block_on(run(database_url, auth))
-        .map_err(ApiError::Internal)
+pub async fn serve(database_url: &str, auth: Auth) -> Result<(), ApiError> {
+    run(database_url, auth).await.map_err(ApiError::Internal)
 }
 
 fn print_banner() {

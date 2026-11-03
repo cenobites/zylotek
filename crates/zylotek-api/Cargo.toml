@@ -3,6 +3,10 @@ name = "zylotek-api"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "zylotek-api"
+path = "src/main.rs"
+
 [dependencies]
 zylotek-domain = { workspace = true }
 zylotek-infrastructure = { workspace = true }
@@ -20,6 +24,7 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 log = { workspace = true }
+clap = { workspace = true }
 jsonwebtoken = { workspace = true }
 argon2 = { workspace = true }
 ed25519-dalek = { workspace = true }

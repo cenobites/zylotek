@@ -146,7 +146,13 @@ A thin clap binary: `db setup|migrate` delegate to `zylotek_infrastructure::pers
 (unless `--offline`), merges the two with `zylotek_sync::merge` and stores the result with
 `ImportWoods`, so the CLI is a second composition root next to
 `zylotek-api`. The global `--database-url` (env `ZYLOTEK_DATABASE_URL`) picks the database
-for `sync` and `api`.
+for `sync`; `auth keygen|client` manage the OAuth key and clients the API reads.
+
+Any other subcommand is dispatched git-style (`commands/external.rs`): `zylotek-cli api …` or
+`zylotek-cli webapp …` runs the `zylotek-api` or `zylotek-webapp` executable with the remaining arguments, found next to the CLI binary
+first and then on `PATH` (on Unix the CLI `exec`s it, so signals and exit status pass through).
+The webapp and assistant stay separate binaries the CLI does not link, so it needs no web or
+LLM dependencies; any `zylotek-<name>` executable you add is reachable the same way.
 
 ### `crates/zylotek-contracts`
 

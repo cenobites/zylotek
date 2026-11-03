@@ -5,6 +5,7 @@ mod parsers;
 pub use merge::{Merged, merge};
 pub use open_data::{DATASET_URL, OpenData, RejectedRow, parse_open_data};
 pub use parsers::parse_wood;
+use simple_logger::SimpleLogger;
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -90,6 +91,8 @@ impl SyncronizerRunner {
     /// Scrapes every listing page and every species page. Fails only when the HTTP client
     /// cannot be set up; page problems are reported in [`Scrape::failures`].
     pub fn run(self) -> Result<Scrape, Error> {
+        SimpleLogger::new().env().init().unwrap();
+
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
