@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, process::ExitCode};
 
 use clap::Parser;
+use zylotek_infrastructure::logging::{self, LoggingConfig};
 use zylotek_webapp::server::{Config, run};
 
 /// The Zylotek website.
@@ -30,12 +31,12 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
     let cli = Cli::parse();
+
+    if let Err(error) = logging::init_with_env(LoggingConfig::server()) {
+        eprintln!("error: {error}");
+        return ExitCode::FAILURE;
+    }
 
     let result = run(Config {
         api_url: cli.api_url,

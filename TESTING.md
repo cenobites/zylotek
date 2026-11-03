@@ -60,8 +60,9 @@ Crates share fixtures through `testing` modules, compiled only for tests or behi
 
 - Unit tests use the in-memory repository, so they never touch SQLite or the network.
 - Integration tests use the real stack: `build_state` + the SQLite repository, wiremock for
-  HTTP, `assert_cmd` for the binary. Don't bind fixed ports in them (`api run` is the one
-  exception and skips itself if 8080 is busy), and don't reuse a dropped `MockServer`'s
+  HTTP, `assert_cmd` for the binary. Don't bind fixed ports in them (the `zylotek-api` binary
+  tests in `crates/zylotek-api/tests/binary.rs` are the one exception and skip themselves if
+  8080 is busy), and don't reuse a dropped `MockServer`'s
   address as a "dead" address: a parallel test can take the port.
 - Response-shape contracts use `insta` snapshots in `crates/zylotek-api/tests/snapshots/`.
   Review changes with `cargo insta review`.

@@ -1,11 +1,9 @@
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::{ffi::OsString, path::PathBuf};
 
-use zylotek_api::auth::DEFAULT_ISSUER;
 use zylotek_infrastructure::persistence::DEFAULT_DATABASE_URL;
 
 use crate::commands::{
-    api::ApiCommand,
     auth::{AuthCommand, OAuthSettings},
     db::DbCommand,
     sync::SyncCommand,
@@ -14,7 +12,7 @@ use crate::commands::{
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
-    /// Database that `sync` writes to and `api` serves from (`sqlite::memory:` for a throwaway one)
+    /// Database that `sync` writes to (`sqlite::memory:` for a throwaway one)
     #[arg(
         long,
         global = true,
@@ -33,15 +31,6 @@ pub struct Cli {
     #[arg(long, global = true, env = "ZYLOTEK_OAUTH_CLIENTS")]
     pub oauth_clients: Option<PathBuf>,
 
-    /// The `iss` of access tokens and the base URL of the OAuth endpoints
-    #[arg(
-        long,
-        global = true,
-        env = "ZYLOTEK_OAUTH_ISSUER",
-        default_value = DEFAULT_ISSUER
-    )]
-    pub oauth_issuer: String,
-
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -51,7 +40,6 @@ impl Cli {
         OAuthSettings {
             signing_key: self.oauth_signing_key.clone(),
             clients: self.oauth_clients.clone(),
-            issuer: self.oauth_issuer.clone(),
         }
     }
 }
@@ -65,10 +53,12 @@ pub enum Commands {
     Sync(SyncCommand),
 
     #[command(subcommand)]
-    Api(ApiCommand),
-
-    #[command(subcommand)]
     Auth(AuthCommand),
+
+    /// Any other name runs the `zylotek-<name>` executable (for example `api`, `webapp` or
+    /// `assistant`), passing the remaining arguments through
+    #[command(external_subcommand)]
+    External(Vec<OsString>),
 }
 
 #[cfg(test)]
@@ -109,7 +99,6 @@ mod tests {
         let cases = [
             (&["db", "setup"][..], Commands::Db(DbCommand::Setup)),
             (&["db", "migrate"], Commands::Db(DbCommand::Migrate)),
-            (&["api", "run"], Commands::Api(ApiCommand::Run)),
             (&["sync", "run"], sync(DEFAULT_FILE, None, false)),
         ];
 
@@ -159,7 +148,7 @@ mod tests {
     fn the_database_url_defaults_to_a_file_and_can_be_set_anywhere() {
         assert_eq!(parse(&[]).unwrap().database_url, DEFAULT_DATABASE_URL);
         assert_eq!(
-            parse(&["--database-url", "sqlite::memory:", "api", "run"])
+            parse(&["--database-url", "sqlite::memory:", "sync", "run"])
                 .unwrap()
                 .database_url,
             "sqlite::memory:"
@@ -175,16 +164,29 @@ mod tests {
     #[test]
     fn rejects_unknown_input() {
         for args in [
-            &["bogus"][..],
-            &["db"],
+            &["db"][..],
             &["db", "drop"],
             &["sync", "run", "--nope"],
             &["sync", "run", "--source", "ftp"],
             &["sync", "run", "--offline", "--listing-url", "http://x/y"],
-            &["api", "run", "extra"],
         ] {
             assert!(parse(args).is_err(), "{args:?}");
         }
+    }
+
+    #[test]
+    fn unknown_names_are_external_subcommands_with_their_arguments() {
+        let command = parse(&["webapp", "--listen", "0.0.0.0:80"])
+            .unwrap()
+            .command;
+        assert_eq!(
+            command,
+            Some(Commands::External(vec![
+                "webapp".into(),
+                "--listen".into(),
+                "0.0.0.0:80".into()
+            ]))
+        );
     }
 
     #[test]
@@ -197,7 +199,7 @@ mod tests {
             parse(&["--version"]).unwrap_err().kind(),
             ErrorKind::DisplayVersion
         );
-        assert!(format!("{:?}", parse(&["api", "run"]).unwrap()).contains("Api"));
+        assert!(format!("{:?}", parse(&["sync", "run"]).unwrap()).contains("Sync"));
     }
 
     #[test]
@@ -242,10 +244,9 @@ mod tests {
 
     #[test]
     fn the_oauth_options_are_global_and_have_sensible_defaults() {
-        let defaults = parse(&["api", "run"]).unwrap().oauth();
+        let defaults = parse(&["auth", "keygen"]).unwrap().oauth();
         assert_eq!(defaults.signing_key, None);
         assert_eq!(defaults.clients, None);
-        assert_eq!(defaults.issuer, "http://localhost:8080");
         assert_eq!(
             defaults.signing_key_path(),
             PathBuf::from("zylotek-oauth-key.pem")
@@ -258,17 +259,14 @@ mod tests {
         let given = parse(&[
             "--oauth-signing-key",
             "k.pem",
-            "api",
-            "run",
+            "auth",
+            "keygen",
             "--oauth-clients",
             "c.json",
-            "--oauth-issuer",
-            "https://zylotek.example",
         ])
         .unwrap()
         .oauth();
         assert_eq!(given.signing_key_path(), PathBuf::from("k.pem"));
         assert_eq!(given.clients_path(), PathBuf::from("c.json"));
-        assert_eq!(given.issuer, "https://zylotek.example");
     }
 }

@@ -74,13 +74,14 @@ fn cmd_run(
         let scrape = scrape(listing_url)?;
         let scraped = scrape.woods.len();
         let merged = merge(woods, scrape.woods);
-        println!(
+        log::info!(
             "Scraped {scraped} species pages from the LPF web site ({} failed)",
             scrape.failures.len()
         );
-        println!(
+        log::info!(
             "Completed {} species from their web pages; {} more exist only on the web",
-            merged.enriched, merged.web_only
+            merged.enriched,
+            merged.web_only
         );
         (merged.woods, scrape.failures)
     } else {
@@ -89,8 +90,8 @@ fn cmd_run(
 
     let report = save(woods, database_url)?;
 
-    println!("Read {read} rows from {}", file.display());
-    println!(
+    log::info!("Read {read} rows from {}", file.display());
+    log::info!(
         "Stored {} new woods in {database_url}; updated {}, left {} as they were, skipped {} further lots of a species already read",
         report.created,
         report.updated,
@@ -98,7 +99,7 @@ fn cmd_run(
         report.duplicates.len()
     );
     for row in &rejected {
-        eprintln!(
+        log::warn!(
             "rejected line {} (id {}): {}",
             row.line,
             id_of(row),
@@ -106,10 +107,10 @@ fn cmd_run(
         );
     }
     for failure in &scrape_failures {
-        eprintln!("web page failed {}: {}", failure.url, failure.reason);
+        log::error!("web page failed {}: {}", failure.url, failure.reason);
     }
     for failure in &report.failed {
-        eprintln!("failed {}: {}", failure.scientific_name, failure.error);
+        log::error!("failed {}: {}", failure.scientific_name, failure.error);
     }
 
     match rejected.len() + scrape_failures.len() + report.failed.len() {

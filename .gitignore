@@ -6,3 +6,6 @@ fuzz/coverage
 fuzz/corpus
 zylotek.db*
 zylotek-oauth-*
+# Local config can hold secrets; only the sample is tracked.
+.env*.toml
+!.env.sample.toml

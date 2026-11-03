@@ -17,6 +17,7 @@ members = [
     "crates/zylotek-contracts",
     "crates/zylotek-assistant",
     "crates/zylotek-webapp",
+    "crates/zylotek-config",
 ]
 # cargo-fuzz targets need nightly and libFuzzer; they live in their own workspace.
 exclude = ["fuzz"]
@@ -29,8 +30,11 @@ zylotek-api = { path = "crates/zylotek-api" }
 zylotek-assistant = { path = "crates/zylotek-assistant" }
 zylotek-webapp = { path = "crates/zylotek-webapp" }
 zylotek-sync = { path = "crates/zylotek-sync" }
+zylotek-config = { path = "crates/zylotek-config" }
 zylotek-application = { path = "crates/zylotek-application" }
-zylotek-infrastructure = { path = "crates/zylotek-infrastructure" }
+# Without default features so clients can take `logging` alone; crates that use the database
+# ask for the `persistence` feature.
+zylotek-infrastructure = { path = "crates/zylotek-infrastructure", default-features = false }
 log = "0.4.34"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 futures = "0.3.34"
@@ -48,6 +52,7 @@ uuid = { version = "1.27.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0"
+toml = "1.1"
 axum = { version = "0.8.9", features = ["macros", "tracing"] }
 tower = { version = "0.5", features = ["full"] }
 tower-http = { version = "0.6", features = [

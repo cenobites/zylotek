@@ -27,13 +27,19 @@ cargo run -p zylotek-cli -- sync run --offline             # the CSV alone, with
 cargo run -p zylotek-cli -- db setup
 cargo run -p zylotek-cli -- db migrate      # or: make migrate
 
-# Run the HTTP API on 0.0.0.0:8080
-cargo run -p zylotek-cli -- api run
+# Run the HTTP API on 0.0.0.0:8080 (its own binary, zylotek-api)
+cargo run -p zylotek-api
+
+# Git-style: any other name runs the `zylotek-<name>` executable, next to the CLI or on PATH
+cargo build --workspace
+./target/debug/zylotek-cli api                               # same as zylotek-api
+./target/debug/zylotek-cli webapp --listen 127.0.0.1:3000   # same as zylotek-webapp --listen …
+./target/debug/zylotek-cli assistant --model-url http://gpu-box:8081
 ```
 
-`sync` and `api` share one database: `sqlite:zylotek.db` in the working directory unless you
+`sync` and `zylotek-api` share one database: `sqlite:zylotek.db` in the working directory unless you
 pass `--database-url <url>` or set `ZYLOTEK_DATABASE_URL` (`sqlite::memory:` for a throwaway
-one). Run `sync run` first and `api run` then serves what was stored. Syncing is an upsert
+one). Run `sync run` first and `zylotek-api` then serves what was stored. Syncing is an upsert
 keyed on the scientific name: a wood that is not stored is created, one that is gets
 updated, and one that would not change is left alone, so repeating a run is harmless.
 
@@ -97,7 +103,7 @@ grant (RFC 6749 section 4.4), meant for machines such as an importer or the assi
 cargo run -p zylotek-cli -- auth keygen
 cargo run -p zylotek-cli -- auth client create importer
 
-cargo run -p zylotek-cli -- api run
+cargo run -p zylotek-api
 
 # Trade the secret for a token (valid for an hour), then write with it
 TOKEN=$(curl -s -u importer:CLIENT_SECRET -d grant_type=client_credentials \
@@ -180,7 +186,7 @@ browse the catalogue, open a wood, and compare two to four side by side. It need
 the assistant running:
 
 ```bash
-cargo run -p zylotek-cli -- api run                     # :8080
+cargo run -p zylotek-api                                # :8080
 cargo run -p zylotek-assistant -- --model-url http://gpu-box:8081   # :8090
 cargo run -p zylotek-webapp -- --assistant-token "$TOKEN"           # :3000
 ```

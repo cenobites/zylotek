@@ -4666,6 +4666,7 @@ dependencies = [
  "axum",
  "base64 0.23.1",
  "chrono",
+ "clap",
  "criterion",
  "ed25519-dalek 3.0.0",
  "getrandom 0.4.3",
@@ -4684,7 +4685,6 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "tracing-subscriber",
  "zylotek-api",
  "zylotek-application",
  "zylotek-contracts",
@@ -4726,7 +4726,6 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "tracing-subscriber",
  "wiremock",
  "zylotek-api",
  "zylotek-contracts",
@@ -4751,6 +4750,16 @@ dependencies = [
  "zylotek-domain",
  "zylotek-infrastructure",
  "zylotek-sync",
+]
+
+[[package]]
+name = "zylotek-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tempfile",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -4782,6 +4791,7 @@ dependencies = [
  "criterion",
  "log",
  "proptest",
+ "serde_json",
  "tempfile",
  "thiserror",
  "toasty",
@@ -4833,7 +4843,6 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
- "tracing-subscriber",
  "wiremock",
  "zylotek-api",
  "zylotek-assistant",

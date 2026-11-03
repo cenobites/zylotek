@@ -91,6 +91,16 @@ Adapters for the domain's ports and for technical plumbing.
   implements `WoodRepository`.
 - `event_bus/` — the `EventPublisher` / `EventHandler` traits plus a `tokio::sync::broadcast`
   implementation (`TokioEventPublisher`, `run_event_handler`).
+- `logging` — the one place a `tracing` subscriber is built. Each binary's `main` calls
+  `logging::init_with_env(LoggingConfig::server())` (JSON lines on stdout; the CLI uses
+  `LoggingConfig::cli()`: text on stderr). `RUST_LOG` replaces the filter and
+  `ZYLOTEK_LOG_FORMAT=json|pretty` the format. It also routes the `log` macros into tracing.
+  Call it from `main`, never from a `run`/`serve` function the tests call more than once per
+  process.
+
+The `persistence` feature (on by default) holds the database code and the `testing` support.
+The web app and the assistant take the crate with `default-features = false` to use `logging`
+without Toasty or the domain.
 
 **Boundary to note:** the event-bus *traits* live in infrastructure, not domain, so
 `zylotek-application` depends on `zylotek-infrastructure`.
@@ -146,7 +156,13 @@ A thin clap binary: `db setup|migrate` delegate to `zylotek_infrastructure::pers
 (unless `--offline`), merges the two with `zylotek_sync::merge` and stores the result with
 `ImportWoods`, so the CLI is a second composition root next to
 `zylotek-api`. The global `--database-url` (env `ZYLOTEK_DATABASE_URL`) picks the database
-for `sync` and `api`.
+for `sync`; `auth keygen|client` manage the OAuth key and clients the API reads.
+
+Any other subcommand is dispatched git-style (`commands/external.rs`): `zylotek-cli api …` or
+`zylotek-cli webapp …` runs the `zylotek-api` or `zylotek-webapp` executable with the remaining arguments, found next to the CLI binary
+first and then on `PATH` (on Unix the CLI `exec`s it, so signals and exit status pass through).
+The webapp and assistant stay separate binaries the CLI does not link, so it needs no web or
+LLM dependencies; any `zylotek-<name>` executable you add is reachable the same way.
 
 ### `crates/zylotek-contracts`
 

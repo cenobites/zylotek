@@ -1,5 +1,5 @@
 //! Process entry point: binds the fixed port, installs logging and waits for a signal.
-//! Covered by the CLI's binary tests rather than unit tests.
+//! Covered by the binary tests in `tests/binary.rs` rather than unit tests.
 
 use std::sync::Arc;
 
@@ -9,13 +9,6 @@ use zylotek_infrastructure::persistence::{build_db, woods::repositories::Postgre
 use crate::{auth::Auth, build_state, errors::ApiError, router::router};
 
 async fn run(database_url: &str, auth: Auth) -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .json()
-        .init();
-
     let db = build_db(database_url).await?;
     if !auth.is_enabled() {
         log::warn!(
@@ -38,14 +31,8 @@ async fn run(database_url: &str, auth: Auth) -> anyhow::Result<()> {
 }
 
 /// Serves the API on port 8080 until a termination signal arrives.
-pub fn cli(database_url: &str, auth: Auth) -> Result<(), ApiError> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| ApiError::Internal(anyhow::Error::new(e)))?;
-
-    rt.block_on(run(database_url, auth))
-        .map_err(ApiError::Internal)
+pub async fn serve(database_url: &str, auth: Auth) -> Result<(), ApiError> {
+    run(database_url, auth).await.map_err(ApiError::Internal)
 }
 
 fn print_banner() {
