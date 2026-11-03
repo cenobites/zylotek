@@ -1,6 +1,8 @@
+mod merge;
 mod open_data;
 mod parsers;
 
+pub use merge::{Merged, merge};
 pub use open_data::{DATASET_URL, OpenData, RejectedRow, parse_open_data};
 pub use parsers::parse_wood;
 
@@ -60,46 +62,100 @@ pub struct SyncronizerRunner {
     total_page_number: usize,
 }
 
+/// What a scrape brought back. A page that cannot be fetched or parsed is recorded in
+/// `failures` instead of aborting the run, so one bad page never costs the others.
+#[derive(Debug, Default)]
+pub struct Scrape {
+    pub woods: Vec<ScrapedWood>,
+    pub failures: Vec<ScrapeFailure>,
+}
+
+/// A listing or species page that could not be scraped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScrapeFailure {
+    pub url: String,
+    pub reason: String,
+}
+
+impl ScrapeFailure {
+    fn new(url: &str, error: impl std::fmt::Display) -> Self {
+        Self {
+            url: url.to_owned(),
+            reason: error.to_string(),
+        }
+    }
+}
+
 impl SyncronizerRunner {
-    /// Scrapes every listing page and every species page, returning what was scraped.
-    pub fn run(self) -> Result<Vec<ScrapedWood>, Error> {
+    /// Scrapes every listing page and every species page. Fails only when the HTTP client
+    /// cannot be set up; page problems are reported in [`Scrape::failures`].
+    pub fn run(self) -> Result<Scrape, Error> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()?;
 
-        let mut handles: Vec<tokio::task::JoinHandle<Result<_, Error>>> = Vec::new();
         let client = reqwest::Client::builder()
             .connection_verbose(false)
             .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:156.0) Gecko/20100101 Firefox/156.0")
             .build()?;
-        let url = self.listing_url;
 
-        let num_pages = self.total_page_number;
-        for i in 0..=num_pages {
+        let mut handles = Vec::new();
+        for i in 0..=self.total_page_number {
             let client = client.clone();
-            let next_page = format!("{}?start={}", url, i * 20);
+            let page_url = format!("{}?start={}", self.listing_url, i * 20);
 
-            handles.push(rt.spawn(async move {
-                let wood_tasks = fetch_woods(&client, &next_page).await?;
-                let woods: Vec<ScrapedWood> = futures::future::try_join_all(wood_tasks)
-                    .await?
-                    .into_iter()
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(woods)
-            }));
+            handles.push((
+                page_url.clone(),
+                rt.spawn(async move { scrape_page(&client, &page_url).await }),
+            ));
         }
 
-        let mut scraped = Vec::new();
-        for handle in handles {
-            let woods = rt
-                .block_on(handle)
-                .map_err(|e| Error::from(e.to_string()))??;
-            log::debug!("scraped {} woods", woods.len());
-            scraped.extend(woods);
+        let mut scrape = Scrape::default();
+        for (page_url, handle) in handles {
+            let page = page_or_failure(&page_url, rt.block_on(handle));
+            log::debug!("scraped {} woods", page.woods.len());
+            scrape.woods.extend(page.woods);
+            scrape.failures.extend(page.failures);
         }
 
-        Ok(scraped)
+        Ok(scrape)
     }
+}
+
+/// One listing page and the species pages it links to.
+async fn scrape_page(client: &reqwest::Client, page_url: &str) -> Scrape {
+    match fetch_woods(client, page_url).await {
+        Ok(tasks) => collect(tasks).await,
+        Err(error) => Scrape {
+            woods: Vec::new(),
+            failures: vec![ScrapeFailure::new(page_url, format!("{error:#}"))],
+        },
+    }
+}
+
+/// Waits for the species downloads, which are already running concurrently.
+async fn collect(tasks: Vec<(String, WoodFetcherTask)>) -> Scrape {
+    let mut scrape = Scrape::default();
+
+    for (wood_url, task) in tasks {
+        match task.await {
+            Ok(Ok(wood)) => scrape.woods.push(wood),
+            Ok(Err(error)) => scrape
+                .failures
+                .push(ScrapeFailure::new(&wood_url, format!("{error:#}"))),
+            Err(error) => scrape.failures.push(ScrapeFailure::new(&wood_url, error)),
+        }
+    }
+
+    scrape
+}
+
+/// A page task that panicked becomes a failure naming the page.
+fn page_or_failure(page_url: &str, joined: Result<Scrape, tokio::task::JoinError>) -> Scrape {
+    joined.unwrap_or_else(|error| Scrape {
+        woods: Vec::new(),
+        failures: vec![ScrapeFailure::new(page_url, error)],
+    })
 }
 
 #[allow(dead_code)]
@@ -162,7 +218,11 @@ async fn fetch_wood(client: &reqwest::Client, url: &str) -> Result<ScrapedWood> 
 
 type WoodFetcherTask = JoinHandle<Result<ScrapedWood>>;
 
-async fn fetch_woods(client: &reqwest::Client, url: &str) -> Result<Vec<WoodFetcherTask>> {
+/// One download per listed species, with the page it fetches so a failure can name it.
+async fn fetch_woods(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Vec<(String, WoodFetcherTask)>> {
     log::info!("Fetching page: {url}");
     let response = client
         .get(url)
@@ -172,11 +232,13 @@ async fn fetch_woods(client: &reqwest::Client, url: &str) -> Result<Vec<WoodFetc
         .error_for_status()?;
     let body = response.text().await?;
 
-    let mut tasks = Vec::<WoodFetcherTask>::with_capacity(20);
+    let mut tasks = Vec::with_capacity(20);
     for wood_fetcher in parse_listing(&body)? {
         let client = client.clone();
-        tasks.push(tokio::spawn(
-            async move { wood_fetcher.fetch(&client).await },
+        let wood_url = wood_fetcher.source_page_link.clone();
+        tasks.push((
+            wood_url,
+            tokio::spawn(async move { wood_fetcher.fetch(&client).await }),
         ));
     }
 
@@ -403,7 +465,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(tasks.len(), 2);
-        for task in tasks {
+        for (url, task) in tasks {
+            assert!(url.contains("/especie?especieestudadaid="), "{url}");
             assert!(task.await.unwrap().is_ok());
         }
     }
@@ -433,18 +496,22 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn run_reports_a_failing_listing() {
+    async fn run_reports_a_failing_listing_without_failing() {
         let server = server_with("/madeiras", wiremock::ResponseTemplate::new(502)).await;
         let runner = Syncronizer::new()
             .with_listing_url(format!("{}/madeiras", server.uri()))
             .with_total_page_number(0)
             .build();
 
-        let result = tokio::task::spawn_blocking(move || runner.run())
+        let scrape = tokio::task::spawn_blocking(move || runner.run())
             .await
+            .unwrap()
             .unwrap();
 
-        assert!(result.unwrap_err().to_string().contains("502"));
+        assert!(scrape.woods.is_empty());
+        assert_eq!(scrape.failures.len(), 1);
+        assert!(scrape.failures[0].url.ends_with("/madeiras?start=0"));
+        assert!(scrape.failures[0].reason.contains("502"));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -470,9 +537,72 @@ mod tests {
             .with_total_page_number(0)
             .build();
 
-        tokio::task::spawn_blocking(move || runner.run())
+        let scrape = tokio::task::spawn_blocking(move || runner.run())
             .await
             .unwrap()
             .unwrap();
+
+        assert_eq!(scrape.woods.len(), 1);
+        assert!(scrape.failures.is_empty());
+    }
+
+    #[tokio::test]
+    async fn scrape_page_keeps_the_good_species_and_names_the_bad_ones() {
+        let server = wiremock::MockServer::start().await;
+        let listing = format!(
+            r#"<table id="caracteristicaList"><tbody>
+               <tr><td><a href="{0}/especie?especieestudadaid=1">A b</a></td></tr>
+               <tr><td><a href="{0}/missing">C d</a></td></tr>
+               <tr><td><a href="{0}/broken">E f</a></td></tr></tbody></table>"#,
+            server.uri()
+        );
+        for (route, response) in [
+            ("/listing", ok(listing)),
+            ("/especie", ok(SPECIES_HTML)),
+            ("/missing", wiremock::ResponseTemplate::new(404)),
+            ("/broken", ok("<html></html>")),
+        ] {
+            wiremock::Mock::given(wiremock::matchers::path(route))
+                .respond_with(response)
+                .mount(&server)
+                .await;
+        }
+
+        let page = scrape_page(
+            &reqwest::Client::new(),
+            &format!("{}/listing", server.uri()),
+        )
+        .await;
+
+        assert_eq!(page.woods.len(), 1);
+        let reasons: Vec<_> = page
+            .failures
+            .iter()
+            .map(|f| (f.url.rsplit('/').next().unwrap(), f.reason.as_str()))
+            .collect();
+        assert!(reasons[0].0 == "missing" && reasons[0].1.contains("404"));
+        assert!(reasons[1].0 == "broken" && reasons[1].1.contains("failed to parse the page"));
+    }
+
+    #[tokio::test]
+    async fn a_panicking_download_is_a_failure_naming_its_page() {
+        let panicking: WoodFetcherTask = tokio::spawn(async { panic!("parser bug") });
+
+        let scrape = collect(vec![("https://lpf.example/bad".to_owned(), panicking)]).await;
+
+        assert!(scrape.woods.is_empty());
+        assert_eq!(scrape.failures[0].url, "https://lpf.example/bad");
+        assert!(scrape.failures[0].reason.contains("panic"));
+    }
+
+    #[tokio::test]
+    async fn a_panicking_page_task_is_a_failure_naming_the_listing() {
+        let panicking: JoinHandle<Scrape> = tokio::spawn(async { panic!("listing bug") });
+
+        let page = page_or_failure("https://lpf.example/madeiras?start=0", panicking.await);
+
+        assert!(page.woods.is_empty());
+        assert_eq!(page.failures[0].url, "https://lpf.example/madeiras?start=0");
+        assert!(page.failures[0].reason.contains("panic"));
     }
 }

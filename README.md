@@ -18,10 +18,10 @@ wood records over an HTTP CRUD API.
 ## Usage
 
 ```bash
-# Load woods into the database (default: the bundled open-data CSV)
+# Load woods into the database: the bundled open-data CSV, completed from the LPF web site
 cargo run -p zylotek-cli -- sync run
 cargo run -p zylotek-cli -- sync run --file other.csv      # another export of the same format
-cargo run -p zylotek-cli -- sync run --source web          # scrape the LPF web site instead
+cargo run -p zylotek-cli -- sync run --offline             # the CSV alone, without visiting the site
 
 # Generate / apply database migrations (Toasty)
 cargo run -p zylotek-cli -- db setup
@@ -33,16 +33,31 @@ cargo run -p zylotek-cli -- api run
 
 `sync` and `api` share one database: `sqlite:zylotek.db` in the working directory unless you
 pass `--database-url <url>` or set `ZYLOTEK_DATABASE_URL` (`sqlite::memory:` for a throwaway
-one). Run `sync run` first and `api run` then serves what was stored. Syncing is repeatable:
-a wood whose scientific name is already stored is skipped, so a second run adds nothing.
+one). Run `sync run` first and `api run` then serves what was stored. Syncing is an upsert
+keyed on the scientific name: a wood that is not stored is created, one that is gets
+updated, and one that would not change is left alone, so repeating a run is harmless.
 
-#### The CSV import
+#### What `sync run` does
 
-`sync run --source file` (the default) reads the LPF open-data export. Each row there is a
-test *lot*, a species collected at one place, and 269 rows cover only 225 distinct species,
-so the first lot in the file is stored for each species and the rest are reported as
-skipped. Values are converted from the file's SI units (MPa, N) to the kgf-based units the
-API serves; see `crates/zylotek-sync/src/open_data.rs` for the column mapping.
+One command builds each wood from two sources and stores the result.
+
+1. It reads the LPF open-data export. Each row there is a test *lot*, a species collected at
+   one place, and 269 rows cover only 225 distinct species, so the first lot in the file is
+   stored for each species and the rest are reported as skipped. Values are converted from
+   the file's SI units (MPa, N) to the kgf-based units the API serves; see
+   `crates/zylotek-sync/src/open_data.rs` for the column mapping.
+2. It scrapes the LPF site and merges each species page into the CSV wood of the same
+   scientific name (`crates/zylotek-sync/src/merge.rs`). **The CSV wins wherever it has a
+   value**; the page only supplies what the CSV lacks: common names, images, workabilities,
+   end uses and the other free-text notes, the page URL, and any cell a row left blank.
+   Species that only the web has are stored as scraped.
+
+Storing is an upsert: an existing wood takes the new name and values, but keeps anything
+it already has that the new data lacks. So a run that could not reach the site (or a page
+that failed) never erases what an earlier run fetched, and a later run completes it.
+A page that cannot be fetched or parsed is listed on stderr (`web page failed <url>: ...`)
+and the run exits 1, but every other wood is still stored. `--offline` skips step 2;
+`--listing-url` points step 2 at another listing.
 
 ### API
 
@@ -132,11 +147,17 @@ curl -X POST localhost:8080/api/v1/woods \
 `zylotek-assistant` answers questions in plain language ("a table for 12 with Japanese
 joinery") from the catalogue of `zylotek-api`. A language model only reads the question and
 explains the answer; the ranking is arithmetic over the database. Run any OpenAI-compatible
-server on the machine with the GPU, for example llama.cpp:
+server on the machine with the GPU, for example llama.cpp. The model must fit in the GPU's
+memory (see the comment below for the reference machine: an MX150 with 4 GB of VRAM):
 
 ```bash
-# On the GPU machine: an instruction-tuned 7-14B model, 4-bit quantized
-llama-server -m qwen2.5-14b-instruct-q4_k_m.gguf --port 8081 --host 0.0.0.0 -ngl 99
+# On the GPU machine (4 GB VRAM, 16 GB RAM): an instruction-tuned 3B model, 4-bit quantized.
+# It is about 2 GB, so `-ngl 99` keeps all of it on the GPU. Larger models do not fit in 4 GB.
+pip install -U huggingface_hub
+hf auth login
+hf download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf
+
+llama-server -m qwen2.5-3b-instruct-q4_k_m.gguf --port 8081 --host 0.0.0.0 -ngl 99
 
 # Anywhere that can reach the API and the model server
 cargo run -p zylotek-assistant -- \
@@ -210,9 +231,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how the code is organised.
 
 - Only the first test lot of each species is stored; the other lots in the CSV (different
   collection sites and measurements) are skipped, because a scientific name is registered once.
-- `sync run --source web` has not been run against the live site since the import was added,
-  and a malformed page can still abort it (see `TESTING.md`, "Known bugs").
-- The CSV has no workability data or images, so those fields stay empty for imported woods.
+- The merged `sync run` has not been run against the live site: its tests use a stand-in
+  server. A page that fails to scrape leaves that wood with CSV data only until a later run
+  succeeds.
+- `sync run` never deletes a wood, and an update cannot clear a value: a field the new data
+  leaves blank keeps its stored value.
 - Migration `0001` adds `NOT NULL` columns without defaults; it applies to an empty
   `woods` table only.
 - The root `src/main.rs` is a placeholder.

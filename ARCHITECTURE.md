@@ -67,9 +67,13 @@ Each holds its collaborators as trait objects (`Arc<dyn WoodRepository>`,
 `Arc<dyn EventPublisher<WoodEvent>>`). Commands carry raw names plus an already-built
 `WoodDetails`; the use case turns the names into value objects.
 
-`ImportWoods` creates a batch of woods through `CreateWood`: a scientific name that is
-already registered is skipped (so importing twice is harmless) and any other failure is
-recorded without stopping the batch. It returns an `ImportReport`.
+`ImportWoods` upserts a batch of woods keyed on the scientific name
+(`WoodRepository::find_by_scientific_name`): an unknown name goes through `CreateWood`, a
+stored one through `UpdateWood` with the stored details filling whatever the new ones lack
+(`WoodDetails::fill_gaps_from`, in the domain). A wood that would not change is left
+alone, so importing twice is harmless; a name repeated within the batch keeps its first
+occurrence; any other failure is recorded without stopping the batch. It returns an
+`ImportReport` (created, updated, unchanged, duplicates, failed).
 
 `WoodFacade` is the entry point adapters call. `WoodEventHandler` handles every
 `WoodEvent`; it currently only logs. All use cases return `WoodUseCaseError`
@@ -111,7 +115,9 @@ persistence/event failures → 500.
 
 The scraper, acting as an anti-corruption layer between the LPF HTML and the domain.
 `SyncronizerRunner::run` fetches listing pages (`TOTAL_PAGE_NUMBER`, 20 rows each)
-concurrently, then each wood's detail page. `parsers/` has one module per page section;
+concurrently, then each wood's detail page. It returns a `Scrape`: the woods plus a
+`ScrapeFailure` (page URL and reason) for each page that failed, so a bad page, even a
+parser panic, never aborts the run. `parsers/` has one module per page section;
 each extracts text by label or table header and returns domain value objects.
 `parse_wood` assembles them into `ScrapedWood { name, scientific_name, details }`.
 Portuguese labels and ratings (`"muito bom"`, `"não trinca"`) are mapped to domain enums
@@ -124,14 +130,21 @@ lot, so one scientific name can occur on several rows; deduplicating is left to
 `ImportWoods`, not the parser. Imported woods carry the row's `id_especie` as
 `SourceReference::species_id` and the dataset page as their URL.
 
+`merge.rs` combines the two sources (the field-by-field rule is `WoodDetails::fill_gaps_from`): `merge(open_data, scraped)` matches by scientific name
+(case and spacing ignored) and fills only the gaps of the CSV wood from the page, field by
+field, so the CSV's values always win. Only a species' first CSV row is completed, as it is
+the one that gets stored. Web-only species are appended. If the page has a source reference
+it replaces the CSV's dataset URL, since the id and URL belong together.
+
 **Architecture invariant:** sync depends on `zylotek-domain` only, never on
-infrastructure or application. Storing woods goes through `CreateWood`, via `ImportWoods`.
+infrastructure or application. Storing woods goes through `CreateWood` and `UpdateWood`, via `ImportWoods`.
 
 ### `crates/zylotek-cli`
 
 A thin clap binary: `db setup|migrate` delegate to `zylotek_infrastructure::persistence::cli`.
-`sync run [--source file|web] [--file <csv>]` gets the woods from the CSV parser or the
-scraper and stores them with `ImportWoods`, so the CLI is a second composition root next to
+`sync run [--file <csv>] [--offline | --listing-url <url>]` parses the CSV, scrapes the site
+(unless `--offline`), merges the two with `zylotek_sync::merge` and stores the result with
+`ImportWoods`, so the CLI is a second composition root next to
 `zylotek-api`. The global `--database-url` (env `ZYLOTEK_DATABASE_URL`) picks the database
 for `sync` and `api`.
 

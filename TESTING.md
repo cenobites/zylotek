@@ -17,8 +17,9 @@ Four layers, each with a `make` target. `make help` lists them all.
   allowed to stay uncovered: the unreachable `else` in `basic_information.rs` (a
   `div > a > img` always has an element grandparent).
 - **Integration: at least 80% of lines** (`make cov-integration`), measured from `tests/`
-  only. It sits around 93%. The deliberate hole is `sync run --source web`, which would hit
-  the live LPF site; the CSV source is covered end to end.
+  only. It sits around 93%. The CLI's web step is tested against a stand-in LPF site
+  (`Site` in `crates/zylotek-cli/tests/cli.rs`), never the live one; the other `sync` tests
+  pass `--offline`.
 
 Files excluded from the unit gate, and why (the regex lives in the `Makefile`):
 
@@ -102,7 +103,8 @@ Found while writing these tests. Each open one has an `#[ignore]`d test
 1. **The scraper panics on malformed pages.** `parse_wood` unwraps or indexes page content in
    `workabilities.rs` (lines 106, 171, 190) and `selectors.rs` (111): a page with no
    `<table>`, a heading without its table, or a short row aborts the task. Found by
-   fuzzing; see `crates/zylotek-sync/tests/malformed_pages.rs`.
+   fuzzing; see `crates/zylotek-sync/tests/malformed_pages.rs`. A sync run survives it now
+   (the panic becomes a `ScrapeFailure` naming the page), but that wood gets no web data.
 2. **`persistence::cli` swallows errors.** It discards the spawned task's `Result`, so
    `db setup` / `db migrate` exit 0 when `Toasty.toml` is missing or a migration fails.
 3. ~~`build_db` can't reopen a database.~~ Fixed: it now pushes the schema only when the
