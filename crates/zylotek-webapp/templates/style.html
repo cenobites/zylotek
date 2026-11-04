@@ -41,6 +41,26 @@ main:has(.results) .thinking,main:has(.done) .writing{display:none}
 main:has(.done) .prose::after{content:none}
 @keyframes blink{50%{opacity:0}}
 .failed{border-color:#b3261e}
+button.link{background:none;border:0;padding:0;color:var(--accent);text-decoration:underline;font-size:.9em}
+/* The ask history: a drawer on the left that stays out of the way until the hamburger button
+   slides it over the page. The script shows the button; without one there is no history. */
+.sidebar{position:fixed;inset:0 auto 0 0;z-index:20;width:min(18rem,85vw);display:flex;flex-direction:column;gap:.5rem;padding:1rem .75rem;overflow-y:auto;background:var(--card);border-right:1px solid var(--line);transform:translateX(-100%);visibility:hidden;transition:transform .2s ease-out,visibility .2s}
+body.sidebar-open .sidebar{transform:none;visibility:visible}
+.sidebar[hidden]{display:none}
+.sidebar h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:1rem .5rem .25rem}
+.sidebar .new-question{text-align:center}
+.history{list-style:none;margin:0;padding:0}
+.history li{display:flex;align-items:center;border-radius:.5rem}
+.history li:hover,.history li.active{background:var(--line)}
+.history a{flex:1;min-width:0;padding:.4rem .5rem;color:var(--fg);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.history .remove{background:none;border:0;color:var(--muted);padding:.2rem .5rem;opacity:0}
+.history li:hover .remove,.history li.active .remove,.history .remove:focus-visible{opacity:1}
+.sidebar [data-history-empty]{margin:.25rem .5rem;font-size:.9rem}
+.sidebar-foot{margin-top:auto;padding:.5rem;font-size:.85rem}.sidebar-foot p{margin:.5rem 0 0}
+.sidebar-toggle{background:none;color:var(--fg);border-color:var(--line);padding:.2rem .6rem;font-size:1.1rem;line-height:1.2}
+.sidebar-toggle[hidden]{display:none}
+.sidebar-backdrop{display:none}
+body.sidebar-open .sidebar-backdrop{display:block;position:fixed;inset:0;z-index:19;background:rgb(0 0 0 / .4)}
 /* A wood opens in a drawer over the answer, so the answer is never reloaded. */
 .peek{font-weight:600}
 .drawer{position:fixed;inset:0;z-index:10;display:flex;justify-content:flex-end;visibility:hidden;pointer-events:none}
@@ -53,5 +73,5 @@ main:has(.done) .prose::after{content:none}
 .sheet-bar .close{margin-left:auto}
 .sheet iframe{flex:1;width:100%;border:0;background:var(--bg)}
 body.embed main{max-width:none;padding-top:0}
-@media (prefers-reduced-motion:reduce){.spinner,.prose::after{animation:none}.thinking li{animation:none;opacity:1}.sheet,.drawer .backdrop{transition:none}}
+@media (prefers-reduced-motion:reduce){.sidebar{transition:none}.spinner,.prose::after{animation:none}.thinking li{animation:none;opacity:1}.sheet,.drawer .backdrop{transition:none}}
 </style>

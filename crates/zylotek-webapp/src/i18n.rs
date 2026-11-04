@@ -116,6 +116,7 @@ pub struct Strings {
     // Navigation and footer.
     pub nav_ask: &'static str,
     pub nav_browse: &'static str,
+    pub nav_history: &'static str,
     pub footer: &'static str,
 
     // Home.
@@ -150,6 +151,17 @@ pub struct Strings {
     pub writing: &'static str,
     pub open_full_page: &'static str,
     pub close: &'static str,
+
+    // The ask history, kept in the browser.
+    pub history_heading: &'static str,
+    pub history_new: &'static str,
+    pub history_note: &'static str,
+    pub history_empty: &'static str,
+    pub history_clear: &'static str,
+    pub history_clear_confirm: &'static str,
+    pub history_remove: &'static str,
+    pub history_saved_on: &'static str,
+    pub history_missing: &'static str,
 
     // Browsing.
     pub browse_title: &'static str,
@@ -315,6 +327,7 @@ pub static EN: Strings = Strings {
 
     nav_ask: "Ask",
     nav_browse: "Browse woods",
+    nav_history: "History",
     footer: "Data: Laboratório de Produtos Florestais / Serviço Florestal Brasileiro. Figures are indicative; test your own stock before building.",
 
     home_title: "Wood Match",
@@ -355,6 +368,16 @@ pub static EN: Strings = Strings {
     writing: "Writing the explanation…",
     open_full_page: "Open full page ↗",
     close: "Close",
+
+    history_heading: "History",
+    history_new: "New question",
+    history_note: "Kept in this browser only.",
+    history_empty: "Your questions will appear here.",
+    history_clear: "Clear history",
+    history_clear_confirm: "Remove every saved question from this browser?",
+    history_remove: "Remove",
+    history_saved_on: "Saved",
+    history_missing: "That answer is no longer saved in this browser.",
 
     browse_title: "Browse woods",
     browse_heading: "Brazilian woods",
@@ -415,6 +438,7 @@ pub static PT_BR: Strings = Strings {
 
     nav_ask: "Perguntar",
     nav_browse: "Ver madeiras",
+    nav_history: "Histórico",
     footer: "Dados: Laboratório de Produtos Florestais / Serviço Florestal Brasileiro. Os valores são indicativos; teste o seu próprio estoque antes de construir.",
 
     home_title: "Madeira Ideal",
@@ -455,6 +479,16 @@ pub static PT_BR: Strings = Strings {
     writing: "Escrevendo a explicação…",
     open_full_page: "Abrir página completa ↗",
     close: "Fechar",
+
+    history_heading: "Histórico",
+    history_new: "Nova pergunta",
+    history_note: "Guardado apenas neste navegador.",
+    history_empty: "Suas perguntas aparecerão aqui.",
+    history_clear: "Limpar histórico",
+    history_clear_confirm: "Remover todas as perguntas salvas deste navegador?",
+    history_remove: "Remover",
+    history_saved_on: "Salva em",
+    history_missing: "Essa resposta não está mais salva neste navegador.",
 
     browse_title: "Ver madeiras",
     browse_heading: "Madeiras brasileiras",

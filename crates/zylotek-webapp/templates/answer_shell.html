@@ -5,10 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ t.answer_title }} · Zylotek</title>
 {% include "style.html" %}
+<script src="/static/history.js" defer></script>
 </head>
 <body>
 {% include "nav.html" %}
-<main class="answer">
+<div class="layout">
+{% include "sidebar.html" %}
+<main class="answer" data-question="{{ question }}">
 <h1>{{ t.answer_heading }}</h1>
 <p class="question">“{{ question }}”</p>
 <div class="thinking card" role="status" aria-live="polite">

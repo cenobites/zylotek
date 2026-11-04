@@ -1,0 +1,11 @@
+<aside class="sidebar" id="sidebar" data-sidebar hidden aria-label="{{ t.history_heading }}">
+<a class="button new-question" href="/">+ {{ t.history_new }}</a>
+<h2>{{ t.history_heading }}</h2>
+<ul class="history" data-history-list data-remove="{{ t.history_remove }}"></ul>
+<p class="muted" data-history-empty>{{ t.history_empty }}</p>
+<div class="sidebar-foot">
+<button type="button" class="link" data-history-clear data-confirm="{{ t.history_clear_confirm }}" hidden>{{ t.history_clear }}</button>
+<p class="muted">{{ t.history_note }}</p>
+</div>
+</aside>
+<div class="sidebar-backdrop" data-sidebar-close></div>

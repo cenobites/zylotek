@@ -136,8 +136,12 @@ async fn the_ranking_reaches_the_browser_before_the_explanation_is_written() {
         .send()
         .await
         .unwrap();
-    let first = String::from_utf8(response.chunk().await.unwrap().unwrap().to_vec()).unwrap();
-    let mut ranked = String::new();
+    // The page start may come in more than one network chunk.
+    let mut first = String::new();
+    while !first.contains("Thinking…") {
+        first += &String::from_utf8_lossy(&response.chunk().await.unwrap().unwrap());
+    }
+    let mut ranked = first.clone();
     while !ranked.contains("<strong>Hard</strong>") {
         ranked += &String::from_utf8_lossy(&response.chunk().await.unwrap().unwrap());
     }

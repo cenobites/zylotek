@@ -1,5 +1,6 @@
 //! The pages: ask a question, browse woods, read one, compare several. Rendered on the
-//! server; the browser needs no script. The answer page streams: a thinking panel at once,
+//! server; the browser needs no script, and the one there is (`static/history.js`) only adds
+//! the ask history, kept in the browser's storage. The answer page streams: a thinking panel at once,
 //! the ranking when it is ready, then the explanation as it is written, and CSS `:has()`
 //! hides each progress note once what it waits for has arrived.
 
@@ -43,6 +44,7 @@ pub fn router(state: AppState) -> Router {
         .route("/woods", get(woods))
         .route("/woods/{id}", get(wood))
         .route("/compare", get(compare))
+        .route("/static/history.js", get(history_script))
         .route("/health", get(|| async { "OK" }))
         .fallback(|| async { PageError::NotFound(Subject::Page) })
         .layer(axum::middleware::from_fn(security_headers))
@@ -50,8 +52,8 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// No scripts, framing by this site only (the wood drawer on the answer page), images only
-/// over HTTPS: the pages need nothing more.
+/// Scripts from this site only (the ask history; no inline script), framing by this site only
+/// (the wood drawer on the answer page), images only over HTTPS: the pages need nothing more.
 async fn security_headers(
     request: axum::extract::Request,
     next: axum::middleware::Next,
@@ -61,7 +63,7 @@ async fn security_headers(
     for (name, value) in [
         (
             "content-security-policy",
-            "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'self'",
+            "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'self'",
         ),
         ("x-content-type-options", "nosniff"),
         ("referrer-policy", "no-referrer"),
@@ -521,6 +523,18 @@ async fn woods(
     })
 }
 
+/// Saves finished answers in the browser and lists them; the one script of the site.
+async fn history_script() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        include_str!("../static/history.js"),
+    )
+        .into_response()
+}
+
 #[derive(Deserialize)]
 struct WoodQuery {
     /// Any value: the page goes into the answer page's drawer, without the site around it.
@@ -744,7 +758,10 @@ mod tests {
         );
         let policy = headers["content-security-policy"].to_str().unwrap();
         assert!(policy.contains("frame-src 'self'") && policy.contains("frame-ancestors 'self'"));
-        assert!(!policy.contains("script-src"), "still no scripts");
+        assert!(
+            policy.contains("script-src 'self';"),
+            "this site's own script file only, nothing inline"
+        );
         assert_eq!(headers["x-content-type-options"], "nosniff");
         assert_eq!(headers["referrer-policy"], "no-referrer");
         assert_eq!(get(&backends.app(), "/health").await.1, "OK");
@@ -826,6 +843,55 @@ mod tests {
         );
         assert!(html.contains(r#"id="card-a""#));
         assert!(html.contains(r#"<a href="/woods/a" target="_blank" rel="noopener">"#));
+    }
+
+    #[tokio::test]
+    async fn the_history_sidebar_and_its_script_are_served_in_the_visitors_language() {
+        let backends = Backends::start().await;
+
+        let (_, page, _) = get(&backends.app(), "/").await;
+        let (_, portuguese, _) =
+            get_with(&backends.app(), "/", &[("accept-language", "pt-BR")]).await;
+        let (script_status, script, headers) = get(&backends.app(), "/static/history.js").await;
+        let (gone, _, _) = get(&backends.app(), "/history").await;
+
+        assert!(
+            page.contains(r#"<aside class="sidebar" id="sidebar" data-sidebar hidden"#),
+            "the script shows it; without one there is no history to list"
+        );
+        assert!(page.contains("+ New question") && page.contains("data-history-list"));
+        assert!(page.contains(r#"data-missing="That answer is no longer saved in this browser.""#));
+        assert!(page.contains("data-sidebar-toggle") && page.contains("data-home"));
+        assert!(portuguese.contains("Nova pergunta") && portuguese.contains("Limpar histórico"));
+        assert_eq!(gone, StatusCode::NOT_FOUND, "no separate history page");
+        assert_eq!(script_status, StatusCode::OK);
+        assert_eq!(
+            headers[header::CONTENT_TYPE],
+            "text/javascript; charset=utf-8"
+        );
+        assert!(script.contains("zylotek.history.v1"));
+    }
+
+    #[tokio::test]
+    async fn every_page_loads_the_history_script_and_answers_carry_their_question() {
+        let backends = Backends::start().await;
+        Mock::given(path("/v1/ask/stream"))
+            .respond_with(answer(json!([recommendation("a", "Cedro")])))
+            .mount(&backends.assistant)
+            .await;
+
+        let (_, home, _) = get(&backends.app(), "/").await;
+        let (_, html) = post_question(&backends.app(), r#"a "big" table"#).await;
+
+        let tag = r#"<script src="/static/history.js" defer></script>"#;
+        assert!(home.contains(tag) && html.contains(tag));
+        assert!(html.contains(r#"<main class="answer" data-question="a &#34;big&#34; table">"#));
+        assert!(
+            html.contains("data-sidebar"),
+            "the answer page has the sidebar too"
+        );
+        let (_, woods, _) = get(&backends.app(), "/woods").await;
+        assert!(!woods.contains("data-sidebar "), "browsing has no sidebar");
     }
 
     #[tokio::test]
