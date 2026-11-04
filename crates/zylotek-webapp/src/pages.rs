@@ -716,7 +716,9 @@ async fn wood(
     Query(query): Query<WoodQuery>,
 ) -> Result<Html<String>, PageError> {
     let wood = state.api.get(&id).await?;
-    let (t, wood) = (lang.strings(), view::detail(&wood, lang));
+    // The scale shows the woods around this one; without the catalogue the page still renders.
+    let all = state.api.all().await.unwrap_or_default();
+    let (t, wood) = (lang.strings(), view::detail(&wood, &all, lang));
 
     match query.embed {
         Some(_) => render(WoodEmbed { t, wood }),

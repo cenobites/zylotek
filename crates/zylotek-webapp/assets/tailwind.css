@@ -176,6 +176,17 @@
       @apply bg-subtle font-semibold text-fg;
     }
   }
+  /* The browse list: dense, and it wraps rather than scrolls sideways. */
+  .woods-list {
+    @apply text-[0.8rem] leading-snug;
+    & th,
+    & td {
+      @apply px-2 py-0.5 align-middle;
+    }
+    & .tag {
+      @apply my-0 px-1.5 py-0 text-[0.7rem];
+    }
+  }
   .spinner {
     @apply inline-block size-[1em] animate-spin rounded-full border-[0.15em] border-line border-t-accent align-[-0.15em] motion-reduce:animate-none;
   }
