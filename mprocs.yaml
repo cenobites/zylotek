@@ -26,3 +26,6 @@ procs:
       -w crates/zylotek-infrastructure -w crates/zylotek-contracts -w crates/zylotek-config
       -w crates/zylotek-webapp
       -- cargo run -p zylotek-webapp -- --config-file .env.toml
+  llm-server:
+    shell: >-
+      ollama serve
