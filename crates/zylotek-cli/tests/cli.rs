@@ -288,11 +288,11 @@ fn sync_reads_the_bundled_csv_by_default_and_stores_one_wood_per_species() {
     sync(&url)
         .assert()
         .success()
-        .stdout(predicate::str::contains(
+        .stderr(predicate::str::contains(
             "Read 269 rows from toasty/fixtures/",
         ))
-        .stdout(predicate::str::contains("Stored 225 new woods"))
-        .stdout(predicate::str::contains(
+        .stderr(predicate::str::contains("Stored 225 new woods"))
+        .stderr(predicate::str::contains(
             "updated 0, left 0 as they were, skipped 44 further lots of a species already read",
         ));
 
@@ -320,7 +320,7 @@ fn syncing_twice_stores_nothing_new() {
     sync(&url)
         .assert()
         .success()
-        .stdout(predicate::str::contains(
+        .stderr(predicate::str::contains(
             "updated 0, left 225 as they were, skipped 44",
         ));
 
@@ -346,7 +346,7 @@ fn bad_rows_are_reported_and_fail_the_run_but_good_rows_are_still_stored() {
         .assert()
         .failure()
         .code(1)
-        .stdout(predicate::str::contains("Stored 1 new woods"))
+        .stderr(predicate::str::contains("Stored 1 new woods"))
         .stderr(predicate::str::contains("rejected line 3 (id 2)"))
         .stderr(predicate::str::contains(
             "1 rows or pages could not be imported",
@@ -413,13 +413,13 @@ fn the_web_fills_in_what_the_csv_lacks_and_never_overrides_it() {
         .args(["--listing-url", &site.listing_url])
         .assert()
         .success()
-        .stdout(predicate::str::contains(
+        .stderr(predicate::str::contains(
             "Scraped 1 species pages from the LPF web site (0 failed)",
         ))
-        .stdout(predicate::str::contains(
+        .stderr(predicate::str::contains(
             "Completed 1 species from their web pages; 0 more exist only on the web",
         ))
-        .stdout(predicate::str::contains("Stored 2 new woods"));
+        .stderr(predicate::str::contains("Stored 2 new woods"));
 
     let woods = stored_woods(&url);
     let find = |name: &str| {
@@ -487,7 +487,7 @@ fn syncing_again_updates_a_stored_wood_and_never_forgets_what_an_earlier_run_lea
         .args(["--listing-url", &site.listing_url])
         .assert()
         .success()
-        .stdout(predicate::str::contains("updated 1, left 1 as they were"));
+        .stderr(predicate::str::contains("updated 1, left 1 as they were"));
     let image = image_of("Astronium lecointei");
     assert!(image.is_some());
     assert_eq!(stored_woods(&url).len(), 2);
@@ -510,7 +510,7 @@ fn changed_csv_values_replace_the_stored_ones() {
         .arg(&csv)
         .assert()
         .success()
-        .stdout(predicate::str::contains("updated 1, left 1 as they were"));
+        .stderr(predicate::str::contains("updated 1, left 1 as they were"));
 
     let woods = stored_woods(&url);
     let astronium = woods
@@ -547,7 +547,7 @@ fn species_only_the_web_has_are_stored_too() {
         .args(["--listing-url", &site.listing_url])
         .assert()
         .success()
-        .stdout(predicate::str::contains(
+        .stderr(predicate::str::contains(
             "Completed 0 species from their web pages; 1 more exist only on the web",
         ));
 
@@ -572,7 +572,7 @@ fn a_site_that_fails_is_reported_but_the_csv_is_still_stored() {
         .assert()
         .failure()
         .code(1)
-        .stdout(predicate::str::contains("Stored 2 new woods"))
+        .stderr(predicate::str::contains("Stored 2 new woods"))
         .stderr(predicate::str::contains("web page failed"))
         .stderr(predicate::str::contains("503"))
         .stderr(predicate::str::contains("could not be imported"));
@@ -626,7 +626,7 @@ fn auth_keygen_writes_a_private_key_and_refuses_to_overwrite_it() {
         .args(["auth", "keygen"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Wrote a new signing key"));
+        .stderr(predicate::str::contains("Wrote a new signing key"));
 
     let pem = fs::read_to_string(&key).unwrap();
     assert!(pem.starts_with("-----BEGIN PRIVATE KEY-----"));
@@ -658,17 +658,19 @@ fn auth_client_create_shows_the_secret_once_and_stores_only_its_hash() {
         .args(["auth", "client", "create", "assistant"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(
+        .stderr(predicate::str::contains(
             "Created client assistant (woods:write)",
         ))
         .get_output()
-        .stdout
+        .stderr
         .clone();
-    let stdout = String::from_utf8(output).unwrap();
-    let secret = stdout
+    let stderr = String::from_utf8(output).unwrap();
+    // Each log line carries a timestamp and level before the message.
+    let secret = stderr
         .lines()
-        .find_map(|line| line.strip_prefix("client_secret: "))
+        .find_map(|line| line.split_once("client_secret: ").map(|(_, rest)| rest))
         .expect("the secret is printed")
+        .trim()
         .to_owned();
 
     let stored = fs::read_to_string(&clients).unwrap();
@@ -679,8 +681,8 @@ fn auth_client_create_shows_the_secret_once_and_stores_only_its_hash() {
         .args(["auth", "client", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("assistant\twoods:write"))
-        .stdout(predicate::str::contains(&secret).not());
+        .stderr(predicate::str::contains("assistant\twoods:write"))
+        .stderr(predicate::str::contains(&secret).not());
 }
 
 #[test]
@@ -719,8 +721,8 @@ fn auth_client_create_validates_and_never_replaces_a_client() {
         .args(["auth", "client", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("bot\twoods:write woods:read"))
-        .stdout(predicate::str::contains("other").not());
+        .stderr(predicate::str::contains("bot\twoods:write woods:read"))
+        .stderr(predicate::str::contains("other").not());
 }
 
 #[test]
@@ -731,5 +733,5 @@ fn auth_client_list_says_so_when_there_are_no_clients() {
         .args(["auth", "client", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("No clients yet"));
+        .stderr(predicate::str::contains("No clients yet"));
 }
