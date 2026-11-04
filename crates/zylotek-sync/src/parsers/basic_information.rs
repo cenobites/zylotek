@@ -77,20 +77,20 @@ pub(crate) fn parse(container: ElementRef<'_>) -> Result<BasicInformation> {
     let mut images = HashMap::new();
     let img_selector = selectors::query(r#"div > a > img"#)?;
     for img_element in container.select(&img_selector) {
-        let node = img_element.parent().unwrap().parent().unwrap();
-        if let Some(element) = ElementRef::wrap(node) {
-            let attr_name = element
-                .select(&p_selector)
-                .next()
-                .map(|p| p.text().collect::<String>().trim().to_lowercase())
-                .unwrap_or_default();
-            if attr_name.is_empty() {
-                continue;
-            }
-            img_element
-                .attr("src")
-                .map(|src| images.insert(attr_name, src.to_string()));
+        // The caption is the first <p> of the <div> holding the link that wraps the image.
+        let attr_name = img_element
+            .parent()
+            .and_then(|link| link.parent())
+            .and_then(ElementRef::wrap)
+            .and_then(|element| element.select(&p_selector).next())
+            .map(|p| p.text().collect::<String>().trim().to_lowercase())
+            .unwrap_or_default();
+        if attr_name.is_empty() {
+            continue;
         }
+        img_element
+            .attr("src")
+            .map(|src| images.insert(attr_name, src.to_string()));
     }
 
     let scientific_name = label_and_texts

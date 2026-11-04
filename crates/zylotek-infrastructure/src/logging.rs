@@ -114,10 +114,8 @@ pub fn init_with_env(config: LoggingConfig) -> Result<(), LoggingError> {
 /// Call it once, early, from the binary. A second call returns
 /// [`LoggingError::AlreadyInitialised`].
 pub fn init(config: &LoggingConfig) -> Result<(), LoggingError> {
-    let filter = filter(
-        std::env::var(FILTER_ENV_VAR).ok().as_deref(),
-        &config.filter,
-    )?;
+    let rust_log = std::env::var(FILTER_ENV_VAR).ok();
+    let filter = filter(rust_log.as_deref(), &config.filter)?;
 
     let result = match config.output {
         LogOutput::Stdout => subscriber(config.format, filter, io::stdout).try_init(),
@@ -196,6 +194,16 @@ mod tests {
         let subscriber = subscriber(format, filter, capture.clone());
         tracing::subscriber::with_default(subscriber, emit);
         capture.text()
+    }
+
+    #[test]
+    fn the_capture_writer_keeps_what_it_is_given() {
+        let mut writer = Capture::default();
+
+        io::Write::write_all(&mut writer, b"kept").unwrap();
+        io::Write::flush(&mut writer).unwrap();
+
+        assert_eq!(writer.text(), "kept");
     }
 
     #[test]
@@ -309,11 +317,14 @@ mod tests {
 
     #[test]
     fn the_environment_override_leaves_the_config_alone_when_the_variable_is_absent() {
-        // Reads the real environment, so only assert when the variable is not set.
-        if std::env::var_os(FORMAT_ENV_VAR).is_none() {
-            let config = LoggingConfig::cli().with_env_overrides().unwrap();
-            assert_eq!(config, LoggingConfig::cli());
-        }
+        // Reads the real environment; the expectation is built from the same variable.
+        let cli = LoggingConfig::cli();
+        let from_env = std::env::var(FORMAT_ENV_VAR).ok();
+
+        assert_eq!(
+            cli.clone().with_env_overrides().ok(),
+            cli.with_format_override(from_env.as_deref()).ok()
+        );
     }
 
     #[test]
@@ -326,6 +337,14 @@ mod tests {
         init_with_env(config.clone()).unwrap();
         assert!(matches!(
             init(&config).unwrap_err(),
+            LoggingError::AlreadyInitialised
+        ));
+        let to_stdout = LoggingConfig {
+            output: LogOutput::Stdout,
+            ..config.clone()
+        };
+        assert!(matches!(
+            init(&to_stdout).unwrap_err(),
             LoggingError::AlreadyInitialised
         ));
 
