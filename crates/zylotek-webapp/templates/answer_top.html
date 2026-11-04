@@ -1,36 +1,36 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ t.html_lang }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your woods · Zylotek</title>
+<title>{{ t.answer_title }} · Zylotek</title>
 {% include "style.html" %}
 </head>
 <body>
 {% include "nav.html" %}
 <main>
-<h1>Woods for your project</h1>
+<h1>{{ t.answer_heading }}</h1>
 <p class="muted">“{{ question }}”</p>
-{% if !summary.is_empty() %}<p>We understood: <strong>{{ summary }}</strong></p>{% endif %}
-<p class="chips">What we looked at:
-{% for (label, weight) in criteria %}<span>{{ label }}{% if *weight == 3 %} · essential{% else if *weight == 2 %} · important{% endif %}</span>{% endfor %}
+{% if !summary.is_empty() %}<p>{{ t.understood }} <strong>{{ summary }}</strong></p>{% endif %}
+<p class="chips">{{ t.looked_at }}
+{% for chip in criteria %}<span>{{ chip }}</span>{% endfor %}
 </p>
 {% if cards.is_empty() %}
-<p>No wood in the database has the figures needed for this question.</p>
+<p>{{ t.no_matches }}</p>
 {% else %}
 <form method="get" action="/compare">
 {% for card in cards %}
 <div class="card">
 <label>{% if can_compare %}<input type="checkbox" name="id" value="{{ card.id }}"> {% endif %}<strong>{{ card.name }}</strong></label>
-<em class="muted">{{ card.scientific_name }}</em> — match <strong>{{ card.percent }}%</strong>
+<em class="muted">{{ card.scientific_name }}</em> — {{ t.match_word }} <strong>{{ card.percent }}%</strong>
 <div class="bar"><i style="width:{{ card.percent }}%"></i></div>
 <ul>
-{% for reason in card.reasons %}<li>{{ reason.label }}: {{ reason.value }} <span class="muted">(better than {{ reason.percent }}% of woods)</span></li>{% endfor %}
+{% for reason in card.reasons %}<li>{{ reason.label }}: {{ reason.value }} <span class="muted">({{ reason.better_than }})</span></li>{% endfor %}
 </ul>
-<a href="/woods/{{ card.id }}">Full details</a>
+<a href="/woods/{{ card.id }}">{{ t.full_details }}</a>
 </div>
 {% endfor %}
-{% if can_compare %}<p><button type="submit">Compare selected (2 to 4)</button></p>{% endif %}
+{% if can_compare %}<p><button type="submit">{{ t.compare_submit_range }}</button></p>{% endif %}
 </form>
-<h2>In short</h2>
+<h2>{{ t.in_short }}</h2>
 <div class="card prose">{% endif %}

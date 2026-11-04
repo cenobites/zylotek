@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Compare woods{% endblock %}
+{% block title %}{{ t.compare_title }}{% endblock %}
 {% block content %}
-<h1>Compare woods</h1>
+<h1>{{ t.compare_title }}</h1>
 <div class="scroll"><table>
 <thead><tr><th></th>{% for (id, name, scientific) in names %}<th><a href="/woods/{{ id }}">{{ name }}</a><br><em class="muted">{{ scientific }}</em></th>{% endfor %}</tr></thead>
 <tbody>
 {% for row in rows %}<tr><th>{{ row.label }}</th>{% for value in row.values %}<td>{{ value }}</td>{% endfor %}</tr>{% endfor %}
 </tbody></table></div>
-<p class="muted">Higher hardness, strength and stiffness resist more load. Lower shrinkage means a more stable board.</p>
-<p><a href="/woods">← All woods</a></p>
+<p class="muted">{{ t.compare_hint }}</p>
+<p><a href="/woods">{{ t.all_woods }}</a></p>
 {% endblock %}

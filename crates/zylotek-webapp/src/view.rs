@@ -1,5 +1,6 @@
 //! Turns contract types into display-ready strings, so templates stay free of logic.
 
+use crate::i18n::Lang;
 use zylotek_contracts::{
     assistant::{Property, Recommendation},
     woods::{WoodResponse, WorkabilityRating},
@@ -17,16 +18,17 @@ pub struct Pair {
     pub value: String,
 }
 
-fn number(value: Option<f64>, decimals: usize, unit: &str) -> String {
+fn number(value: Option<f64>, decimals: usize, unit: &str, lang: Lang) -> String {
     match value.filter(|v| v.is_finite()) {
-        Some(value) => format!("{value:.decimals$} {unit}").trim_end().to_owned(),
+        Some(value) => lang.decimal(format!("{value:.decimals$} {unit}").trim_end().to_owned()),
         None => MISSING.to_owned(),
     }
 }
 
 /// The figures people compare woods on. Dry-wood values first, green as a fallback, the
 /// same preference the assistant ranks by.
-pub fn facts(wood: &WoodResponse) -> Vec<Fact> {
+pub fn facts(wood: &WoodResponse, lang: Lang) -> Vec<Fact> {
+    let text = lang.strings();
     let details = &wood.details;
     let mechanical = &details.mechanical_properties;
     let dry_or_green = |dry: Option<f64>, green: Option<f64>| dry.or(green);
@@ -46,23 +48,29 @@ pub fn facts(wood: &WoodResponse) -> Vec<Fact> {
 
     vec![
         Fact {
-            label: "Family",
+            label: text.fact_family,
             value: details.family.clone().unwrap_or_else(|| MISSING.to_owned()),
         },
         Fact {
-            label: "Density (apparent)",
+            label: text.fact_density,
             value: number(
                 density.apparent.or(density.dry).or(density.basic),
                 2,
                 "g/cm³",
+                lang,
             ),
         },
         Fact {
-            label: "Volumetric shrinkage",
-            value: number(details.physical_properties.shrinkage.volumetric, 1, "%"),
+            label: text.fact_shrinkage,
+            value: number(
+                details.physical_properties.shrinkage.volumetric,
+                1,
+                "%",
+                lang,
+            ),
         },
         Fact {
-            label: "Janka hardness",
+            label: text.fact_hardness,
             value: number(
                 dry_or_green(
                     mechanical.dry.janka_hardness.parallel_to_grain,
@@ -70,10 +78,11 @@ pub fn facts(wood: &WoodResponse) -> Vec<Fact> {
                 ),
                 0,
                 "kgf",
+                lang,
             ),
         },
         Fact {
-            label: "Bending strength",
+            label: text.fact_bending,
             value: number(
                 dry_or_green(
                     mechanical.dry.static_bending.modulus_of_rupture,
@@ -81,10 +90,11 @@ pub fn facts(wood: &WoodResponse) -> Vec<Fact> {
                 ),
                 0,
                 "kgf/cm²",
+                lang,
             ),
         },
         Fact {
-            label: "Stiffness (MOE)",
+            label: text.fact_stiffness,
             value: number(
                 dry_or_green(
                     mechanical.dry.static_bending.modulus_of_elasticity,
@@ -92,11 +102,12 @@ pub fn facts(wood: &WoodResponse) -> Vec<Fact> {
                 ),
                 0,
                 "kgf/cm²",
+                lang,
             ),
         },
         Fact {
-            label: "Ease of working",
-            value: number(workability, 0, "%"),
+            label: text.fact_workability,
+            value: number(workability, 0, "%", lang),
         },
     ]
 }
@@ -123,14 +134,20 @@ pub struct WoodRow {
     pub family: String,
     pub hardness: String,
     pub density: String,
+    /// Names the row's checkbox for screen readers.
+    pub compare_label: String,
 }
 
-pub fn row(wood: &WoodResponse) -> WoodRow {
-    let facts = facts(wood);
-    let value = |label: &str| {
+/// Where `facts` puts the figures a table row shows.
+const FAMILY: usize = 0;
+const DENSITY: usize = 1;
+const HARDNESS: usize = 3;
+
+pub fn row(wood: &WoodResponse, lang: Lang) -> WoodRow {
+    let facts = facts(wood, lang);
+    let value = |index: usize| {
         facts
-            .iter()
-            .find(|fact| fact.label == label)
+            .get(index)
             .map_or_else(|| MISSING.to_owned(), |fact| fact.value.clone())
     };
 
@@ -138,9 +155,10 @@ pub fn row(wood: &WoodResponse) -> WoodRow {
         id: wood.id.clone(),
         name: wood.name.clone(),
         scientific_name: wood.scientific_name.clone(),
-        family: value("Family"),
-        hardness: value("Janka hardness"),
-        density: value("Density (apparent)"),
+        family: value(FAMILY),
+        hardness: value(HARDNESS),
+        density: value(DENSITY),
+        compare_label: lang.strings().compare_label(&wood.name),
     }
 }
 
@@ -149,7 +167,8 @@ pub struct WoodView {
     pub name: String,
     pub scientific_name: String,
     pub common_names: String,
-    pub location: Option<String>,
+    /// "Collected in Belém, PA."
+    pub location_note: Option<String>,
     pub image: Option<String>,
     pub source_url: Option<String>,
     pub facts: Vec<Fact>,
@@ -176,7 +195,7 @@ fn pairs(map: &std::collections::BTreeMap<String, String>) -> Vec<Pair> {
         .collect()
 }
 
-pub fn detail(wood: &WoodResponse) -> WoodView {
+pub fn detail(wood: &WoodResponse, lang: Lang) -> WoodView {
     let details = &wood.details;
     let description = &details.description;
 
@@ -185,7 +204,10 @@ pub fn detail(wood: &WoodResponse) -> WoodView {
         name: wood.name.clone(),
         scientific_name: wood.scientific_name.clone(),
         common_names: details.common_names.join(", "),
-        location: details.collection_location.clone(),
+        location_note: details
+            .collection_location
+            .as_deref()
+            .map(|location| lang.strings().collected_in(location)),
         image: web_url(&details.images.main),
         source_url: web_url(
             &details
@@ -193,7 +215,7 @@ pub fn detail(wood: &WoodResponse) -> WoodView {
                 .as_ref()
                 .map(|source| source.page_url.clone()),
         ),
-        facts: facts(wood),
+        facts: facts(wood, lang),
         tree: pairs(&description.tree),
         characteristics: pairs(&description.general_characteristics),
         end_uses: description.end_uses.clone(),
@@ -205,8 +227,8 @@ pub fn detail(wood: &WoodResponse) -> WoodView {
 pub struct ReasonView {
     pub label: &'static str,
     pub value: String,
-    /// "better than 85% of the woods in the database".
-    pub percent: u32,
+    /// "better than 85% of woods".
+    pub better_than: String,
 }
 
 pub struct CardView {
@@ -217,32 +239,36 @@ pub struct CardView {
     pub reasons: Vec<ReasonView>,
 }
 
-pub fn label(property: Property) -> &'static str {
+pub fn label(property: Property, lang: Lang) -> &'static str {
+    let text = lang.strings();
     match property {
-        Property::Hardness => "Hardness",
-        Property::Strength => "Bending strength",
-        Property::Stiffness => "Stiffness",
-        Property::Stability => "Dimensional stability",
-        Property::Lightness => "Light weight",
-        Property::Workability => "Ease of working",
+        Property::Hardness => text.prop_hardness,
+        Property::Strength => text.prop_strength,
+        Property::Stiffness => text.prop_stiffness,
+        Property::Stability => text.prop_stability,
+        Property::Lightness => text.prop_lightness,
+        Property::Workability => text.prop_workability,
     }
 }
 
-fn reading(property: Property, value: f64) -> String {
-    match property {
+fn reading(property: Property, value: f64, lang: Lang) -> String {
+    let text = lang.strings();
+    let reading = match property {
         Property::Hardness => format!("{value:.0} kgf"),
         Property::Strength | Property::Stiffness => format!("{value:.0} kgf/cm²"),
-        Property::Stability => format!("{value:.1}% shrinkage"),
+        Property::Stability => format!("{value:.1}% {}", text.shrinkage_suffix),
         Property::Lightness => format!("{value:.2} g/cm³"),
-        Property::Workability => format!("{:.0}% ease", value * 100.0),
-    }
+        Property::Workability => format!("{:.0}% {}", value * 100.0, text.ease_suffix),
+    };
+
+    lang.decimal(reading)
 }
 
 fn percent(fraction: f64) -> u32 {
     (fraction.clamp(0.0, 1.0) * 100.0).round() as u32
 }
 
-pub fn card(recommendation: &Recommendation) -> CardView {
+pub fn card(recommendation: &Recommendation, lang: Lang) -> CardView {
     CardView {
         id: recommendation.wood_id.clone(),
         name: recommendation.name.clone(),
@@ -252,9 +278,9 @@ pub fn card(recommendation: &Recommendation) -> CardView {
             .reasons
             .iter()
             .map(|reason| ReasonView {
-                label: label(reason.property),
-                value: reading(reason.property, reason.value),
-                percent: percent(reason.fit),
+                label: label(reason.property, lang),
+                value: reading(reason.property, reason.value, lang),
+                better_than: lang.strings().better_than(percent(reason.fit)),
             })
             .collect(),
     }
@@ -289,7 +315,7 @@ mod tests {
 
     #[test]
     fn a_wood_with_nothing_known_shows_dashes() {
-        let facts = facts(&wood("1", "Bare"));
+        let facts = facts(&wood("1", "Bare"), Lang::En);
 
         assert_eq!(facts.len(), 7);
         assert!(facts.iter().all(|fact| fact.value == "—"));
@@ -320,7 +346,7 @@ mod tests {
         w.details.workabilities.surface_finishing.vise = WorkabilityRating::Fair;
         w.details.workabilities.surface_finishing.drill = WorkabilityRating::NotApplicable;
 
-        let facts = facts(&w);
+        let facts = facts(&w, Lang::En);
 
         assert_eq!(value(&facts, "Family"), "Meliaceae");
         assert_eq!(value(&facts, "Density (apparent)"), "0.50 g/cm³");
@@ -361,7 +387,7 @@ mod tests {
             .janka_hardness
             .parallel_to_grain = Some(1800.0);
 
-        let row = row(&w);
+        let row = row(&w, Lang::En);
 
         assert_eq!((row.id.as_str(), row.name.as_str()), ("7", "Ipê"));
         assert_eq!(row.hardness, "1800 kgf");
@@ -383,7 +409,7 @@ mod tests {
             .insert("Altura".into(), "30 m".into());
         w.details.description.end_uses = Some("Móveis".into());
 
-        let view = detail(&w);
+        let view = detail(&w, Lang::En);
 
         assert_eq!(view.common_names, "Cedro-rosa, Cedro-vermelho");
         assert_eq!(view.image, None, "a javascript: URL is dropped");
@@ -395,7 +421,7 @@ mod tests {
         assert_eq!(view.end_uses.as_deref(), Some("Móveis"));
         w.details.images.main = Some("http://example.org/a.jpg".into());
         assert_eq!(
-            detail(&w).image.as_deref(),
+            detail(&w, Lang::En).image.as_deref(),
             Some("http://example.org/a.jpg")
         );
     }
@@ -417,7 +443,7 @@ mod tests {
                 .collect(),
         };
 
-        let card = card(&recommendation);
+        let card = card(&recommendation, Lang::En);
 
         assert_eq!(card.percent, 84);
         let readings: Vec<_> = card.reasons.iter().map(|r| r.value.as_str()).collect();
@@ -432,8 +458,42 @@ mod tests {
                 "50% ease"
             ]
         );
-        assert!(card.reasons.iter().all(|r| r.percent == 100), "clamped");
-        assert_eq!(label(Property::Stability), "Dimensional stability");
+        assert!(
+            card.reasons
+                .iter()
+                .all(|r| r.better_than == "better than 100% of woods"),
+            "clamped"
+        );
+        assert_eq!(
+            label(Property::Stability, Lang::En),
+            "Dimensional stability"
+        );
         assert_eq!(percent(-1.0), 0);
+    }
+
+    #[test]
+    fn portuguese_figures_use_decimal_commas_and_translated_labels() {
+        let mut w = wood("1", "Cedro");
+        w.details.physical_properties.density.dry = Some(0.5);
+        w.details.physical_properties.shrinkage.volumetric = Some(12.34);
+
+        let facts = facts(&w, Lang::PtBr);
+        let reading = |property, value| super::reading(property, value, Lang::PtBr);
+
+        assert_eq!(value(&facts, "Densidade (aparente)"), "0,50 g/cm³");
+        assert_eq!(value(&facts, "Retração volumétrica"), "12,3 %");
+        assert_eq!(value(&facts, "Família"), "—");
+        assert_eq!(reading(Property::Stability, 0.5), "0,5% de retração");
+        assert_eq!(reading(Property::Workability, 0.5), "50% de facilidade");
+        assert_eq!(reading(Property::Hardness, 900.0), "900 kgf");
+        assert_eq!(label(Property::Lightness, Lang::PtBr), "Leveza");
+        assert_eq!(detail_note(&w), None, "no location, no note");
+        w.details.collection_location = Some("Belém, PA".into());
+        assert_eq!(detail_note(&w).as_deref(), Some("Coletada em Belém, PA."));
+        assert_eq!(row(&w, Lang::PtBr).compare_label, "Comparar Cedro");
+    }
+
+    fn detail_note(w: &WoodResponse) -> Option<String> {
+        detail(w, Lang::PtBr).location_note
     }
 }

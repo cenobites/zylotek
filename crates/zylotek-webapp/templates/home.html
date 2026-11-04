@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Find the right wood{% endblock %}
+{% block title %}{{ t.home_title }}{% endblock %}
 {% block content %}
-<h1>Which wood should I use?</h1>
-<p class="muted">Describe what you want to build, in your own words. We rank the Brazilian woods in our database for it.</p>
+<h1>{{ t.home_heading }}</h1>
+<p class="muted">{{ t.home_intro }}</p>
 <form method="post" action="/ask">
-<textarea name="question" maxlength="1000" required placeholder="I want to build a dining table for 12 seats using Japanese joinery">{{ question }}</textarea>
+<textarea name="question" maxlength="1000" required placeholder="{{ t.home_placeholder }}">{{ question }}</textarea>
 {% if let Some(error) = error %}<p class="err">{{ error }}</p>{% endif %}
-<p><button type="submit">Find woods</button></p>
+<p><button type="submit">{{ t.home_submit }}</button></p>
 </form>
 {% endblock %}

@@ -7,8 +7,8 @@ use askama::Template;
 use axum::{
     Form, Router,
     body::Body,
-    extract::{Path, Query, RawQuery, State},
-    http::{StatusCode, header},
+    extract::{FromRequestParts, Path, Query, RawQuery, State},
+    http::{StatusCode, header, request::Parts},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
@@ -19,6 +19,7 @@ use std::convert::Infallible;
 use crate::{
     clients::{ApiClient, AssistantClient, LiveAnswer, Piece, is_id},
     error::BackendError,
+    i18n::{Lang, Strings},
     view::{self, CardView, Fact, WoodRow, WoodView},
 };
 
@@ -41,8 +42,9 @@ pub fn router(state: AppState) -> Router {
         .route("/woods/{id}", get(wood))
         .route("/compare", get(compare))
         .route("/health", get(|| async { "OK" }))
-        .fallback(|| async { PageError::NotFound("that page") })
+        .fallback(|| async { PageError::NotFound(Subject::Page) })
         .layer(axum::middleware::from_fn(security_headers))
+        .layer(axum::middleware::from_fn(localize))
         .with_state(state)
 }
 
@@ -67,11 +69,52 @@ async fn security_headers(
     response
 }
 
+// ---- language -------------------------------------------------------------------------
+
+tokio::task_local! {
+    /// The language of the request being served, for code that has no request to ask, such as
+    /// turning an error into a page.
+    static CURRENT: Lang;
+}
+
+fn current() -> Lang {
+    CURRENT.try_with(|lang| *lang).unwrap_or_default()
+}
+
+/// Picks the visitor's language (see [`Lang::detect`]) and remembers an explicit choice.
+async fn localize(mut request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let (lang, chosen) = Lang::detect(request.uri().query(), request.headers());
+    request.extensions_mut().insert(lang);
+    let mut response = CURRENT.scope(lang, next.run(request)).await;
+    let headers = response.headers_mut();
+    if let Some(chosen) = chosen
+        && let Ok(cookie) = axum::http::HeaderValue::from_str(&chosen.cookie())
+    {
+        headers.append(header::SET_COOKIE, cookie);
+    }
+    // The same address answers in the language the request asks for.
+    headers.append(
+        header::VARY,
+        axum::http::HeaderValue::from_static("accept-language, cookie"),
+    );
+
+    response
+}
+
+impl<S: Send + Sync> FromRequestParts<S> for Lang {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+        Ok(parts.extensions.get::<Lang>().copied().unwrap_or_default())
+    }
+}
+
 // ---- templates ------------------------------------------------------------------------
 
 #[derive(Template)]
 #[template(path = "home.html")]
 struct HomePage {
+    t: &'static Strings,
     question: String,
     error: Option<String>,
 }
@@ -80,9 +123,11 @@ struct HomePage {
 #[derive(Template)]
 #[template(path = "answer_top.html")]
 struct AnswerTop {
+    t: &'static Strings,
     question: String,
     summary: String,
-    criteria: Vec<(&'static str, u8)>,
+    /// "Hardness · essential", one chip each.
+    criteria: Vec<String>,
     cards: Vec<CardView>,
     can_compare: bool,
 }
@@ -91,17 +136,17 @@ struct AnswerTop {
 #[derive(Template)]
 #[template(path = "answer_bottom.html")]
 struct AnswerBottom {
+    t: &'static Strings,
     has_explanation_box: bool,
-    catalogue_size: usize,
+    ranked: String,
 }
 
 #[derive(Template)]
 #[template(path = "woods.html")]
 struct WoodsPage {
+    t: &'static Strings,
+    showing: String,
     rows: Vec<WoodRow>,
-    total: u64,
-    first: usize,
-    last: usize,
     previous: Option<usize>,
     next: Option<usize>,
 }
@@ -109,12 +154,14 @@ struct WoodsPage {
 #[derive(Template)]
 #[template(path = "wood.html")]
 struct WoodPage {
+    t: &'static Strings,
     wood: WoodView,
 }
 
 #[derive(Template)]
 #[template(path = "compare.html")]
 struct ComparePage {
+    t: &'static Strings,
     names: Vec<(String, String, String)>,
     rows: Vec<CompareRow>,
 }
@@ -127,6 +174,7 @@ struct CompareRow {
 #[derive(Template)]
 #[template(path = "error.html")]
 struct ErrorPage {
+    t: &'static Strings,
     status: u16,
     title: &'static str,
     message: String,
@@ -141,8 +189,33 @@ fn render<T: Template>(template: T) -> Result<Html<String>, PageError> {
 
 // ---- errors ---------------------------------------------------------------------------
 
+/// What could not be found.
+#[derive(Clone, Copy, Debug)]
+pub enum Subject {
+    Page,
+    Wood,
+}
+
+/// Why a comparison cannot be made; the wording depends on the visitor's language.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompareError {
+    InvalidId,
+    TooFew,
+    TooMany,
+}
+
+impl CompareError {
+    pub fn message(self, text: &Strings) -> String {
+        match self {
+            CompareError::InvalidId => text.invalid_wood.to_owned(),
+            CompareError::TooFew => text.select_at_least(MIN_COMPARE),
+            CompareError::TooMany => text.compare_at_most(MAX_COMPARE),
+        }
+    }
+}
+
 pub enum PageError {
-    NotFound(&'static str),
+    NotFound(Subject),
     BadRequest(String),
     Backend(BackendError),
     Internal(String),
@@ -151,7 +224,7 @@ pub enum PageError {
 impl From<BackendError> for PageError {
     fn from(error: BackendError) -> Self {
         match error {
-            BackendError::NotFound => PageError::NotFound("that wood"),
+            BackendError::NotFound => PageError::NotFound(Subject::Wood),
             other => PageError::Backend(other),
         }
     }
@@ -159,33 +232,38 @@ impl From<BackendError> for PageError {
 
 impl IntoResponse for PageError {
     fn into_response(self) -> Response {
+        let text = current().strings();
         let (status, title, message) = match self {
             PageError::NotFound(what) => (
                 StatusCode::NOT_FOUND,
-                "Not found",
-                format!("We could not find {what}."),
+                text.title_not_found,
+                text.could_not_find(match what {
+                    Subject::Page => text.that_page,
+                    Subject::Wood => text.that_wood,
+                }),
             ),
             PageError::BadRequest(message) => {
-                (StatusCode::BAD_REQUEST, "Check your request", message)
+                (StatusCode::BAD_REQUEST, text.title_bad_request, message)
             }
             PageError::Backend(error) => {
                 tracing::warn!(%error, "a backend failed");
                 (
                     StatusCode::BAD_GATEWAY,
-                    "Service unavailable",
-                    friendly(&error),
+                    text.title_unavailable,
+                    friendly(&error, text),
                 )
             }
             PageError::Internal(detail) => {
                 tracing::error!(%detail, "could not render a page");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Something went wrong",
-                    "The page could not be built. Please try again.".to_owned(),
+                    text.title_internal,
+                    text.message_internal.to_owned(),
                 )
             }
         };
         let page = ErrorPage {
+            t: text,
             status: status.as_u16(),
             title,
             message,
@@ -197,32 +275,31 @@ impl IntoResponse for PageError {
 }
 
 /// What a visitor is told; the technical detail goes to the log only.
-fn friendly(error: &BackendError) -> String {
+fn friendly(error: &BackendError, text: &Strings) -> String {
     match error {
-        BackendError::Unreachable { service, .. } => {
-            format!("We could not reach {service}. Please try again in a moment.")
-        }
+        BackendError::Unreachable { service, .. } => text.unreachable(service),
         BackendError::Status {
             service,
             status: 400,
             message,
-        } => format!("{service} could not use that: {message}"),
+        } => text.rejected(service, message),
         BackendError::Status {
             service,
             status: 503,
             ..
-        } => format!("{service} is still starting up. Please try again in a moment."),
+        } => text.starting_up(service),
         BackendError::Status { service, .. } | BackendError::Malformed { service, .. } => {
-            format!("{service} had a problem answering. Please try again.")
+            text.had_a_problem(service)
         }
-        BackendError::NotFound => "We could not find that wood.".to_owned(),
+        BackendError::NotFound => text.could_not_find(text.that_wood),
     }
 }
 
 // ---- handlers -------------------------------------------------------------------------
 
-async fn home() -> Result<Html<String>, PageError> {
+async fn home(lang: Lang) -> Result<Html<String>, PageError> {
     render(HomePage {
+        t: lang.strings(),
         question: String::new(),
         error: None,
     })
@@ -234,14 +311,16 @@ struct AskForm {
 }
 
 async fn ask(
+    lang: Lang,
     State(state): State<AppState>,
     Form(form): Form<AskForm>,
 ) -> Result<Response, PageError> {
     let question = form.question.trim().to_owned();
     if question.is_empty() || question.chars().count() > MAX_QUESTION_CHARS {
         // Back to the form with the text kept, rather than an error page.
-        let error = format!("Please write between 1 and {MAX_QUESTION_CHARS} characters.");
+        let error = lang.strings().question_length(MAX_QUESTION_CHARS);
         return Ok(render(HomePage {
+            t: lang.strings(),
             question: form.question,
             error: Some(error),
         })?
@@ -251,16 +330,30 @@ async fn ask(
     // Wait only for the ranking. Anything that goes wrong before it is an ordinary error page;
     // once the page has started, the explanation is a courtesy that may be cut short.
     let live = state.assistant.ask_stream(&question).await?;
-    let cards: Vec<CardView> = live.answer.recommendations.iter().map(view::card).collect();
+    let cards: Vec<CardView> = live
+        .answer
+        .recommendations
+        .iter()
+        .map(|r| view::card(r, lang))
+        .collect();
     let has_explanation_box = !cards.is_empty();
+    let text = lang.strings();
     let top = AnswerTop {
+        t: text,
         question,
         summary: live.answer.summary.clone(),
         criteria: live
             .answer
             .criteria
             .iter()
-            .map(|c| (view::label(c.property), c.weight))
+            .map(|c| {
+                let label = view::label(c.property, lang);
+                match c.weight {
+                    3 => format!("{label} · {}", text.essential),
+                    2 => format!("{label} · {}", text.important),
+                    _ => label.to_owned(),
+                }
+            })
             .collect(),
         can_compare: cards.len() >= MIN_COMPARE,
         cards,
@@ -268,8 +361,9 @@ async fn ask(
     .render()
     .map_err(|error| PageError::Internal(error.to_string()))?;
     let bottom = AnswerBottom {
+        t: text,
         has_explanation_box,
-        catalogue_size: live.answer.catalogue_size,
+        ranked: text.ranked_among(live.answer.catalogue_size),
     }
     .render()
     .map_err(|error| PageError::Internal(error.to_string()))?;
@@ -280,7 +374,7 @@ async fn ask(
             (header::CACHE_CONTROL, "no-store"),
             (header::HeaderName::from_static("x-accel-buffering"), "no"),
         ],
-        Body::from_stream(page_stream(top, bottom, live)),
+        Body::from_stream(page_stream(top, bottom, live, text)),
     )
         .into_response())
 }
@@ -291,6 +385,7 @@ fn page_stream(
     top: String,
     bottom: String,
     live: LiveAnswer,
+    text: &'static Strings,
 ) -> impl Stream<Item = Result<String, Infallible>> {
     enum Stage {
         Top(String),
@@ -301,13 +396,16 @@ fn page_stream(
 
     futures::stream::unfold(
         (Stage::Top(top), live, bottom),
-        |(stage, mut live, bottom)| async move {
+        move |(stage, mut live, bottom)| async move {
             let (chunk, next) = match stage {
                 Stage::Top(top) => (top, Stage::Words),
                 Stage::Words => match live.next_piece().await {
                     Some(Piece::Text(text)) => (escape(&text), Stage::Words),
                     Some(Piece::Cut) => (
-                        "\n<p class=\"err\">The explanation was cut short.</p>".to_owned(),
+                        format!(
+                            "\n<p class=\"err\">{}</p>",
+                            escape(text.explanation_cut_short)
+                        ),
                         Stage::Bottom,
                     ),
                     None => (String::new(), Stage::Bottom),
@@ -344,6 +442,7 @@ struct Paging {
 }
 
 async fn woods(
+    lang: Lang,
     State(state): State<AppState>,
     Query(paging): Query<Paging>,
 ) -> Result<Html<String>, PageError> {
@@ -351,11 +450,12 @@ async fn woods(
     let page = state.api.list(offset, PAGE_SIZE).await?;
     let shown = page.items.len();
 
+    let first = if shown == 0 { 0 } else { offset + 1 };
+
     render(WoodsPage {
-        rows: page.items.iter().map(view::row).collect(),
-        total: page.total,
-        first: if shown == 0 { 0 } else { offset + 1 },
-        last: offset + shown,
+        t: lang.strings(),
+        showing: lang.strings().showing(first, offset + shown, page.total),
+        rows: page.items.iter().map(|w| view::row(w, lang)).collect(),
         previous: (offset > 0).then(|| offset.saturating_sub(PAGE_SIZE)),
         next: ((offset + shown) as u64 > 0 && ((offset + shown) as u64) < page.total)
             .then_some(offset + shown),
@@ -363,50 +463,54 @@ async fn woods(
 }
 
 async fn wood(
+    lang: Lang,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Html<String>, PageError> {
     let wood = state.api.get(&id).await?;
 
     render(WoodPage {
-        wood: view::detail(&wood),
+        t: lang.strings(),
+        wood: view::detail(&wood, lang),
     })
 }
 
 /// The `id` values of a query string: distinct, well-formed, between 2 and 4 of them.
-pub fn compare_ids(query: Option<&str>) -> Result<Vec<String>, String> {
+pub fn compare_ids(query: Option<&str>) -> Result<Vec<String>, CompareError> {
     let mut ids: Vec<String> = Vec::new();
     for (key, value) in form_urlencoded::parse(query.unwrap_or_default().as_bytes()) {
         if key != "id" {
             continue;
         }
         if !is_id(&value) {
-            return Err("One of the selected woods is not valid.".to_owned());
+            return Err(CompareError::InvalidId);
         }
         if !ids.iter().any(|seen| *seen == value) {
             ids.push(value.into_owned());
         }
     }
     if ids.len() < MIN_COMPARE {
-        return Err(format!("Select at least {MIN_COMPARE} woods to compare."));
+        return Err(CompareError::TooFew);
     }
     if ids.len() > MAX_COMPARE {
-        return Err(format!("Compare at most {MAX_COMPARE} woods at a time."));
+        return Err(CompareError::TooMany);
     }
 
     Ok(ids)
 }
 
 async fn compare(
+    lang: Lang,
     State(state): State<AppState>,
     RawQuery(query): RawQuery,
 ) -> Result<Html<String>, PageError> {
-    let ids = compare_ids(query.as_deref()).map_err(PageError::BadRequest)?;
+    let ids = compare_ids(query.as_deref())
+        .map_err(|error| PageError::BadRequest(error.message(lang.strings())))?;
     let mut woods = Vec::with_capacity(ids.len());
     for id in &ids {
         woods.push(state.api.get(id).await?);
     }
-    let columns: Vec<Vec<Fact>> = woods.iter().map(view::facts).collect();
+    let columns: Vec<Vec<Fact>> = woods.iter().map(|w| view::facts(w, lang)).collect();
     let rows = columns[0]
         .iter()
         .enumerate()
@@ -420,6 +524,7 @@ async fn compare(
         .collect();
 
     render(ComparePage {
+        t: lang.strings(),
         names: woods
             .iter()
             .map(|w| (w.id.clone(), w.name.clone(), w.scientific_name.clone()))
@@ -878,7 +983,10 @@ mod tests {
         ];
 
         for (error, expected) in cases {
-            assert!(friendly(&error).contains(expected), "{error}");
+            assert!(
+                friendly(&error, Lang::En.strings()).contains(expected),
+                "{error}"
+            );
         }
     }
 
@@ -971,5 +1079,212 @@ mod tests {
             "a &amp; b &lt; c &gt; d &quot; e &#39; f"
         );
         assert_eq!(escape("plain café"), "plain café");
+    }
+    async fn get_with(
+        app: &Router,
+        uri: &str,
+        headers: &[(&str, &str)],
+    ) -> (StatusCode, String, axum::http::HeaderMap) {
+        let mut request = Request::get(uri);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+
+        send(app, request.body(Body::empty()).unwrap()).await
+    }
+
+    #[tokio::test]
+    async fn the_browser_language_picks_the_translation_without_setting_a_cookie() {
+        let backends = Backends::start().await;
+        let app = backends.app();
+
+        let (_, portuguese, headers) =
+            get_with(&app, "/", &[("accept-language", "pt-BR,pt;q=0.9,en;q=0.8")]).await;
+        let (_, english, _) = get(&app, "/").await;
+        let (_, other, _) = get_with(&app, "/", &[("accept-language", "fr-FR")]).await;
+
+        assert!(portuguese.contains("<html lang=\"pt-BR\">"));
+        assert!(portuguese.contains("Qual madeira devo usar?"));
+        assert!(portuguese.contains("Buscar madeiras"));
+        assert!(!portuguese.contains("Which wood"));
+        assert!(!headers.contains_key(header::SET_COOKIE));
+        assert!(
+            headers[header::VARY]
+                .to_str()
+                .unwrap()
+                .contains("accept-language")
+        );
+        assert!(english.contains("<html lang=\"en\">") && english.contains("Which wood"));
+        assert_eq!(
+            other, english,
+            "an unsupported language falls back to English"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_lang_parameter_wins_and_is_remembered_in_a_cookie() {
+        let backends = Backends::start().await;
+        let app = backends.app();
+
+        let (_, html, headers) = get_with(&app, "/?lang=pt-br", &[("accept-language", "en")]).await;
+        let (_, back, english_headers) = get_with(
+            &app,
+            "/",
+            &[("accept-language", "en"), ("cookie", "lang=pt-br")],
+        )
+        .await;
+        let (_, switched, switched_headers) =
+            get_with(&app, "/?lang=en", &[("cookie", "lang=pt-br")]).await;
+
+        assert!(html.contains("Qual madeira devo usar?"));
+        let cookie = headers[header::SET_COOKIE].to_str().unwrap();
+        assert!(cookie.starts_with("lang=pt-br;") && cookie.contains("SameSite=Lax"));
+        assert!(
+            back.contains("Qual madeira devo usar?"),
+            "the cookie beats the browser"
+        );
+        assert!(!english_headers.contains_key(header::SET_COOKIE));
+        assert!(switched.contains("Which wood should I use?"));
+        assert!(
+            switched_headers[header::SET_COOKIE]
+                .to_str()
+                .unwrap()
+                .starts_with("lang=en;")
+        );
+    }
+
+    #[tokio::test]
+    async fn every_page_offers_both_languages() {
+        let backends = Backends::start().await;
+
+        let (_, html, _) = get(&backends.app(), "/").await;
+
+        assert!(html.contains("href=\"/?lang=en\"") && html.contains("href=\"/?lang=pt-br\""));
+    }
+
+    #[tokio::test]
+    async fn errors_are_shown_in_the_visitors_language() {
+        let backends = Backends::start().await;
+        let app = backends.app();
+        let pt = [("accept-language", "pt")];
+
+        let (status, missing, _) = get_with(&app, "/nope", &pt).await;
+        let (bad, few, _) = get_with(&app, "/compare?id=a", &pt).await;
+        let (_, invalid, _) = get_with(&app, "/compare?id=a&id=%25", &pt).await;
+        let (_, many, _) = get_with(&app, "/compare?id=a&id=b&id=c&id=d&id=e", &pt).await;
+
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(missing.contains("Não encontramos essa página."));
+        assert!(missing.contains("Erro 404") && missing.contains("Voltar ao início"));
+        assert_eq!(bad, StatusCode::BAD_REQUEST);
+        assert!(few.contains("Selecione pelo menos 2 madeiras para comparar."));
+        assert!(invalid.contains("não é válida"));
+        assert!(many.contains("Compare no máximo 4 madeiras por vez."));
+    }
+
+    #[tokio::test]
+    async fn a_backend_failure_page_is_translated_too() {
+        let backends = Backends::start().await;
+
+        let (status, html, _) =
+            get_with(&backends.app(), "/woods", &[("accept-language", "pt-BR")]).await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert!(html.contains("Serviço indisponível"));
+        assert!(html.contains("Tente novamente"));
+    }
+
+    #[tokio::test]
+    async fn a_wood_page_and_a_comparison_are_translated_with_decimal_commas() {
+        let backends = Backends::start().await;
+        let (a, b) = (
+            "0b9c4f1e-aaaa-4bbb-8ccc-123456789abc",
+            "1b9c4f1e-aaaa-4bbb-8ccc-123456789abc",
+        );
+        backends.wood(a, "Cedro").await;
+        backends.wood(b, "Ipê").await;
+        let app = backends.app();
+        let pt = [("accept-language", "pt-BR")];
+
+        let (_, wood, _) = get_with(&app, &format!("/woods/{a}"), &pt).await;
+        let (_, compare, _) = get_with(&app, &format!("/compare?id={a}&id={b}"), &pt).await;
+
+        assert!(wood.contains("Principais características"));
+        assert!(wood.contains("Dureza Janka") && wood.contains("900 kgf"));
+        assert!(wood.contains("Usos típicos") && wood.contains("também chamada de Alias"));
+        assert!(wood.contains("← Todas as madeiras"));
+        assert!(compare.contains("Comparar madeiras"));
+        assert!(compare.contains("Retração volumétrica"));
+        assert!(compare.contains("Maior dureza, resistência e rigidez"));
+    }
+
+    #[tokio::test]
+    async fn the_catalogue_page_is_translated() {
+        let backends = Backends::start().await;
+        Mock::given(path("/api/v1/woods"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "items": [wood_json("0b9c4f1e-aaaa-4bbb-8ccc-123456789abc", "Cedro")],
+                "total": 30, "limit": 24, "offset": 0,
+            })))
+            .mount(&backends.api)
+            .await;
+
+        let (_, html, _) = get_with(&backends.app(), "/woods", &[("accept-language", "pt")]).await;
+
+        assert!(html.contains("Madeiras brasileiras"));
+        assert!(html.contains("Mostrando 1–1 de 30."));
+        assert!(html.contains("Nome científico") && html.contains("Família"));
+        assert!(html.contains("aria-label=\"Comparar Cedro\""));
+        assert!(html.contains("Próxima →"));
+    }
+
+    #[tokio::test]
+    async fn the_answer_page_is_translated_around_the_explanation() {
+        let backends = Backends::start().await;
+        Mock::given(path("/v1/ask/stream"))
+            .respond_with(answer(json!([
+                recommendation("a", "Cedro"),
+                recommendation("b", "Ipê")
+            ])))
+            .mount(&backends.assistant)
+            .await;
+        let body: String = form_urlencoded::Serializer::new(String::new())
+            .append_pair("question", "uma mesa")
+            .finish();
+        let request = Request::post("/ask")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header("accept-language", "pt-BR")
+            .body(Body::from(body))
+            .unwrap();
+
+        let (status, html, _) = send(&backends.app(), request).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains("<html lang=\"pt-BR\">"));
+        assert!(html.contains("Madeiras para o seu projeto"));
+        assert!(html.contains("Entendemos:"));
+        assert!(html.contains("Estabilidade dimensional · essencial"));
+        assert!(html.contains("Dureza · importante"));
+        assert!(html.contains("compatibilidade"));
+        assert!(html.contains("Ver detalhes"));
+        assert!(html.contains("Comparar selecionadas (2 a 4)"));
+        assert!(html.contains("Em resumo"));
+        assert!(html.contains("Classificadas entre 225 madeiras."));
+        assert!(html.contains("Fazer outra pergunta"));
+        assert!(html.contains("melhor que"));
+    }
+
+    #[tokio::test]
+    async fn a_bad_question_is_answered_in_the_visitors_language() {
+        let backends = Backends::start().await;
+        let request = Request::post("/ask")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header("cookie", "lang=pt-br")
+            .body(Body::from("question=+"))
+            .unwrap();
+
+        let (_, html, _) = send(&backends.app(), request).await;
+
+        assert!(html.contains("Escreva entre 1 e 1000 caracteres."));
     }
 }

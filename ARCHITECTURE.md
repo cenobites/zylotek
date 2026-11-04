@@ -219,6 +219,14 @@ friendly error page; the technical detail goes to the log only. Askama escapes e
 including the model's text, and a header middleware sets a CSP that forbids scripts. Wood ids
 are checked before they reach a URL, and image and source links must be `http(s)`.
 
+The site speaks English and Brazilian Portuguese. `i18n.rs` holds one `Strings` value per
+language (a missing translation does not compile) and picks the language per request: `?lang=`
+first, which also sets a one-year `lang` cookie, then that cookie, then `Accept-Language`, then
+English. A middleware stores the choice for the handlers (the `Lang` extractor) and for error
+pages. Templates only print `t.<field>`; sentences with numbers are built in Rust, and
+Portuguese figures use decimal commas. Wood data and the model's explanation are not translated.
+To add a language: a `Lang` variant, a `Strings` static, and a link in `templates/nav.html`.
+
 ### Root `src/main.rs`
 
 An empty placeholder.

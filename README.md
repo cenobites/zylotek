@@ -195,6 +195,10 @@ Options and environment variables: `--api-url` (`ZYLOTEK_API_URL`), `--assistant
 down, and asking works only when it is up. The ranking appears at once and the explanation
 writes itself in as the model produces it.
 
+The site is available in English and Brazilian Portuguese (pt-br). It follows the browser's
+`Accept-Language`; the links in the header, or `?lang=pt-br` / `?lang=en`, switch and remember
+the choice in a cookie. The wood data and the assistant's written explanation are not translated.
+
 ## Development
 
 ```bash

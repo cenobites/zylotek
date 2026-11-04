@@ -3,6 +3,6 @@
 {% block content %}
 <h1>{{ title }}</h1>
 <p>{{ message }}</p>
-<p class="muted">Error {{ status }}</p>
-<p><a href="/">Back to the start</a></p>
+<p class="muted">{{ t.error_word }} {{ status }}</p>
+<p><a href="/">{{ t.back_to_start }}</a></p>
 {% endblock %}

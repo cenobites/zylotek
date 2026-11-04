@@ -5,6 +5,7 @@
 
 pub mod clients;
 pub mod error;
+pub mod i18n;
 pub mod pages;
 pub mod server;
 pub mod view;

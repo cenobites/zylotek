@@ -8,7 +8,7 @@ use zylotek_contracts::{
     assistant::{Property, Reason, Recommendation},
     woods::{WoodDetailsSchema, WoodResponse, WorkabilityRating},
 };
-use zylotek_webapp::{pages::compare_ids, view};
+use zylotek_webapp::{i18n::Lang, pages::compare_ids, view};
 
 fn wood() -> WoodResponse {
     let mut details = WoodDetailsSchema {
@@ -73,10 +73,14 @@ fn benches(c: &mut Criterion) {
     c.bench_function("compare_ids/three_woods", |b| {
         b.iter(|| compare_ids(black_box(Some(query))))
     });
-    c.bench_function("view/facts", |b| b.iter(|| view::facts(black_box(&wood))));
-    c.bench_function("view/detail", |b| b.iter(|| view::detail(black_box(&wood))));
+    c.bench_function("view/facts", |b| {
+        b.iter(|| view::facts(black_box(&wood), Lang::PtBr))
+    });
+    c.bench_function("view/detail", |b| {
+        b.iter(|| view::detail(black_box(&wood), Lang::PtBr))
+    });
     c.bench_function("view/card", |b| {
-        b.iter(|| view::card(black_box(&recommendation)))
+        b.iter(|| view::card(black_box(&recommendation), Lang::PtBr))
     });
 }
 
