@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 use zylotek_api::auth::{
-    DEFAULT_CLIENTS_FILE, DEFAULT_SIGNING_KEY_FILE, WRITE_SCOPE, create_client, list_clients,
-    write_new_signing_key,
+    ASKS_WRITE_SCOPE, DEFAULT_CLIENTS_FILE, DEFAULT_SIGNING_KEY_FILE, WRITE_SCOPE, create_client,
+    list_clients, write_new_signing_key,
 };
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -46,8 +46,13 @@ pub enum ClientCommand {
         /// Letters, digits, '.', '_' or '-'
         client_id: String,
 
-        /// What the client may ask for; repeat for several
-        #[arg(short, long = "scope", default_value = WRITE_SCOPE)]
+        /// What the client may ask for; repeat for several (the web app needs asks:write)
+        #[arg(
+            short,
+            long = "scope",
+            default_value = WRITE_SCOPE,
+            value_parser = clap::builder::PossibleValuesParser::new([WRITE_SCOPE, ASKS_WRITE_SCOPE]),
+        )]
         scopes: Vec<String>,
     },
 

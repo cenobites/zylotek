@@ -102,6 +102,7 @@ grant (RFC 6749 section 4.4), meant for machines such as an importer or the assi
 # One-time setup: a signing key, and a client (its secret is printed once, never stored)
 cargo run -p zylotek-cli -- auth keygen
 cargo run -p zylotek-cli -- auth client create importer
+cargo run -p zylotek-cli -- auth client create webapp --scope asks:write   # for zylotek-webapp
 
 cargo run -p zylotek-api
 
@@ -121,7 +122,8 @@ curl -X POST localhost:8080/api/v1/woods -H "Authorization: Bearer $TOKEN" \
 
 - Tokens are EdDSA-signed JWTs (RFC 9068). A token that is missing, malformed, expired or for
   another issuer gets `401` with a `WWW-Authenticate: Bearer` challenge; a valid token without
-  the `woods:write` scope gets `403`.
+  the route's scope gets `403`. Opening an ask (`POST /api/v1/asks`) and recording its progress
+  need `asks:write` instead; `--scope` accepts `woods:write` and `asks:write`.
 - Authentication is checked before the request body is read.
 - With no signing key or clients file, OAuth stays off: reads work and writes answer `503`.
   Having only one of the two files is an error. The key and the clients file are looked up as
