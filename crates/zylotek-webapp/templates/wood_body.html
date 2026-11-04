@@ -1,10 +1,11 @@
-<div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-<div class="aspect-[4/3] overflow-hidden rounded-3xl border border-line shadow-[0_20px_50px_-25px_rgb(60_35_15/0.45)]">{% if let Some(image) = wood.image %}<img class="block size-full object-cover" src="{{ image }}" alt="{{ wood.name }}" referrerpolicy="no-referrer">{% else %}<div class="grain size-full" style="{{ wood.grain }}" role="img" aria-label="{{ t.no_photo }}"></div>{% endif %}</div>
+<div class="grid items-start gap-8 group-[.embed]/body:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+{# Embedded in the answer's side panel, the photo is a banner and the panel header names the wood. #}
+<div class="aspect-[4/3] overflow-hidden rounded-3xl border border-line shadow-[0_20px_50px_-25px_rgb(60_35_15/0.45)] group-[.embed]/body:aspect-[5/2] group-[.embed]/body:rounded-2xl group-[.embed]/body:shadow-none">{% if let Some(image) = wood.image %}<img class="block size-full object-cover" src="{{ image }}" alt="{{ wood.name }}" referrerpolicy="no-referrer">{% else %}<div class="grain size-full" style="{{ wood.grain }}" role="img" aria-label="{{ t.no_photo }}"></div>{% endif %}</div>
 <div>
-<h1>{{ wood.name }}</h1>
-<p class="m-0 text-muted"><em class="font-serif text-lg">{{ wood.scientific_name }}</em>{% if !wood.common_names.is_empty() %} · {{ t.also_called }} {{ wood.common_names }}{% endif %}</p>
+<h1 class="group-[.embed]/body:sr-only">{{ wood.name }}</h1>
+<p class="m-0 text-muted"><em class="font-serif text-lg group-[.embed]/body:hidden">{{ wood.scientific_name }}</em>{% if !wood.common_names.is_empty() %}<span class="group-[.embed]/body:hidden"> · </span>{{ t.also_called }} {{ wood.common_names }}{% endif %}</p>
 {% if let Some(note) = wood.location_note %}<p class="mt-2 mb-0 flex items-center gap-1.5 text-sm text-muted"><svg class="icon"><use href="#i-pin"/></svg>{{ note }}</p>{% endif %}
-<h2 class="eyebrow mt-7 font-sans">{{ t.key_figures }}</h2>
+<h2 class="eyebrow mt-7 font-sans group-[.embed]/body:mt-5">{{ t.key_figures }}</h2>
 <dl class="m-0 grid grid-cols-2 gap-2.5 sm:grid-cols-3">{% for fact in wood.facts %}<div class="rounded-xl border border-line bg-card px-3.5 py-2.5"><dt class="text-xs text-muted">{{ fact.label }}</dt><dd class="m-0 mt-0.5 font-semibold tabular-nums">{{ fact.value }}</dd></div>{% endfor %}</dl>
 </div>
 </div>

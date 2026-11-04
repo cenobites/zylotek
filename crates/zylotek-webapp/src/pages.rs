@@ -1014,11 +1014,15 @@ mod tests {
         assert!(html.contains(r#"id="peek-a" aria-label="Cedro""#));
         assert!(html.contains(r#"src="/woods/a?embed=1" loading="lazy""#));
         assert!(
-            html.contains(r##"class="close ml-auto" href="#card-a">"##),
+            html.contains(r##"class="close shrink-0" href="#card-a">"##),
             "closing returns to the card"
         );
         assert!(html.contains(r#"id="card-a""#));
-        assert!(html.contains(r#"<a href="/woods/a" target="_blank" rel="noopener">"#));
+        assert!(html.contains(r#"href="/woods/a" target="_blank" rel="noopener">"#));
+        assert!(
+            html.find(r#"id="peek-a""#) > html.find("</form>\n</div>"),
+            "drawers sit outside the animated results, which would box a fixed drawer in"
+        );
     }
 
     #[tokio::test]
@@ -1107,7 +1111,11 @@ mod tests {
         let (_, full, _) = get(&backends.app(), "/woods/a").await;
 
         assert_eq!(status, StatusCode::OK);
-        assert!(embedded.contains("<h1>Cedro</h1>") && embedded.contains(r#"<body class="embed "#));
+        assert!(
+            embedded.contains(r#"<h1 class="group-[.embed]/body:sr-only">Cedro</h1>"#)
+                && embedded.contains(r#"<body class="embed "#),
+            "the name stays for screen readers; the panel header shows it"
+        );
         assert!(!embedded.contains("<header") && !embedded.contains("All woods"));
         assert!(full.contains("<header") && full.contains("All woods"));
     }
@@ -1374,7 +1382,7 @@ mod tests {
         let (bad, _, _) = get(&app, "/woods/..%2Fsecrets").await;
 
         assert_eq!(status, StatusCode::OK);
-        assert!(html.contains("<h1>Cedro</h1>"));
+        assert!(html.contains(">Cedro</h1>"));
         assert!(html.contains("also called Alias"));
         assert!(html.contains(r#"src="https://img.example/x.jpg""#));
         assert!(html.contains("Janka hardness") && html.contains("900 kgf"));

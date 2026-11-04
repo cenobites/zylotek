@@ -8,7 +8,7 @@
 </div>
 {% else %}
 <form method="get" action="/compare" class="mt-6">
-<ol class="m-0 list-none space-y-3 p-0">
+<ol class="m-0 grid list-none gap-3 p-0">
 {% for card in cards %}
 <li class="card wood-card m-0 flex gap-4 p-4 transition hover:border-accent/40 sm:p-5" id="card-{{ card.id }}">
 <a class="grain relative hidden size-24 shrink-0 rounded-xl sm:block" style="{{ card.grain }}" href="#peek-{{ card.id }}" tabindex="-1" aria-hidden="true"><span class="absolute top-1.5 left-1.5 grid size-6 place-items-center rounded-full bg-card/90 text-xs font-semibold text-fg">{{ loop.index }}</span></a>
@@ -31,18 +31,26 @@
 </ol>
 {% if can_compare %}<p class="mt-4"><button class="btn btn-quiet" type="submit"><svg class="icon"><use href="#i-columns"/></svg>{{ t.compare_submit_range }}</button></p>{% endif %}
 </form>
+</div>
+{# Outside .results: its rise animation leaves a transform, which would box a fixed drawer in. #}
 {% for card in cards %}
 <aside class="drawer group/drawer pointer-events-none invisible fixed inset-0 z-30 flex justify-end overflow-hidden target:pointer-events-auto target:visible" id="peek-{{ card.id }}" aria-label="{{ card.name }}">
 <a class="absolute inset-0 bg-black/30 opacity-0 backdrop-blur-[2px] transition-opacity duration-200 group-target/drawer:opacity-100 motion-reduce:transition-none" href="#card-{{ card.id }}" tabindex="-1" aria-hidden="true"></a>
-<div class="relative flex h-full w-[min(42rem,100%)] translate-x-full flex-col border-l border-line bg-bg shadow-2xl transition-transform duration-300 ease-out group-target/drawer:translate-x-0 motion-reduce:transition-none">
-<div class="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3"><strong class="font-serif text-lg">{{ card.name }}</strong>
-<a href="/woods/{{ card.id }}" target="_blank" rel="noopener"><span class="text-sm">{{ t.open_full_page }}</span></a>
-<a class="close ml-auto" href="#card-{{ card.id }}"><span class="icon-btn size-9 text-muted" title="{{ t.close }}"><svg class="icon size-5"><use href="#i-x"/></svg><span class="sr-only">{{ t.close }}</span></span></a></div>
+<div class="relative flex h-full w-[min(44rem,100%)] translate-x-full flex-col border-l border-line bg-bg shadow-2xl transition-transform duration-300 ease-out group-target/drawer:translate-x-0 motion-reduce:transition-none">
+<div class="flex items-center gap-3 border-b border-line bg-card px-4 py-3 sm:px-5">
+<span class="grain size-11 shrink-0 rounded-lg" style="{{ card.grain }}" aria-hidden="true"></span>
+<div class="min-w-0 flex-1">
+<strong class="block truncate font-serif text-lg leading-tight">{{ card.name }}</strong>
+<span class="block truncate text-sm text-muted"><strong class="text-fg tabular-nums">{{ card.percent }}%</strong> {{ t.match_word }} · <em>{{ card.scientific_name }}</em></span>
+</div>
+<a class="btn btn-quiet hidden shrink-0 sm:inline-flex" href="/woods/{{ card.id }}" target="_blank" rel="noopener">{{ t.open_full_page }}</a>
+<a class="close shrink-0" href="#card-{{ card.id }}"><span class="icon-btn size-9 text-muted" title="{{ t.close }}"><svg class="icon size-5"><use href="#i-x"/></svg><span class="sr-only">{{ t.close }}</span></span></a>
+</div>
 <iframe class="w-full flex-1 border-0 bg-bg" src="/woods/{{ card.id }}?embed=1" loading="lazy" title="{{ card.name }}"></iframe>
+<a class="btn btn-quiet m-3 justify-center sm:hidden" href="/woods/{{ card.id }}" target="_blank" rel="noopener">{{ t.open_full_page }}</a>
 </div>
 </aside>
 {% endfor %}
-</div>
 <h2>{{ t.in_short }}</h2>
 <p class="writing flex items-center gap-2 text-sm text-muted group-has-[.done]/answer:hidden"><span class="spinner" aria-hidden="true"></span> {{ t.writing }}</p>
 <div class="prose card text-[1.02rem] leading-7 whitespace-pre-wrap after:animate-blink after:text-accent after:content-['▍'] group-has-[.done]/answer:after:content-none motion-reduce:after:animate-none">{% endif %}
