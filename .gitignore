@@ -9,3 +9,6 @@ zylotek-oauth-*
 # Local config can hold secrets; only the sample is tracked.
 .env*.toml
 !.env.sample.toml
+
+# Tailwind tooling for the web app; its built static/app.css is committed.
+node_modules

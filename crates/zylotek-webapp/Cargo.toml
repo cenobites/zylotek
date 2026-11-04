@@ -12,6 +12,9 @@ zylotek-contracts = { workspace = true }
 zylotek-infrastructure = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+log = { workspace = true }
 clap = { workspace = true }
 zylotek-config = { workspace = true }
 form_urlencoded = { workspace = true }

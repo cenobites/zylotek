@@ -1,11 +1,11 @@
-<aside class="sidebar" id="sidebar" data-sidebar hidden aria-label="{{ t.history_heading }}">
-<a class="button new-question" href="/">+ {{ t.history_new }}</a>
-<h2>{{ t.history_heading }}</h2>
-<ul class="history" data-history-list data-remove="{{ t.history_remove }}"></ul>
-<p class="muted" data-history-empty>{{ t.history_empty }}</p>
-<div class="sidebar-foot">
-<button type="button" class="link" data-history-clear data-confirm="{{ t.history_clear_confirm }}" hidden>{{ t.history_clear }}</button>
-<p class="muted">{{ t.history_note }}</p>
+<aside class="invisible fixed inset-y-0 left-0 z-20 flex w-[min(18rem,85vw)] -translate-x-full flex-col gap-2 overflow-y-auto border-r border-line bg-card p-3 transition-[transform,visibility] duration-200 group-data-[sidebar=open]/body:visible group-data-[sidebar=open]/body:translate-x-0 motion-reduce:transition-none" id="sidebar" data-sidebar hidden aria-label="{{ t.history_heading }}">
+<a class="btn text-center" href="/">+ {{ t.history_new }}</a>
+<h2 class="mx-2 mt-4 mb-1 text-xs font-semibold tracking-wider text-muted uppercase">{{ t.history_heading }}</h2>
+<ul class="m-0 list-none p-0" data-history-list data-remove="{{ t.history_remove }}"></ul>
+<p class="mx-2 my-1 text-sm text-muted" data-history-empty>{{ t.history_empty }}</p>
+<div class="mt-auto p-2 text-sm">
+<button type="button" class="link-btn" data-history-clear data-confirm="{{ t.history_clear_confirm }}" hidden>{{ t.history_clear }}</button>
+<p class="mt-2 text-muted">{{ t.history_note }}</p>
 </div>
 </aside>
-<div class="sidebar-backdrop" data-sidebar-close></div>
+<div class="fixed inset-0 z-19 hidden bg-black/40 group-data-[sidebar=open]/body:block" data-sidebar-close></div>

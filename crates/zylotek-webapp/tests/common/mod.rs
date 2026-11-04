@@ -225,11 +225,19 @@ pub async fn ask(site: &Site, question: &str) -> (u16, String) {
 
 /// Ids of the API's woods in listing order, by scraping the site's own list page.
 pub fn ids_in(html: &str) -> Vec<String> {
-    html.split("href=\"/woods/")
+    let mut ids: Vec<String> = Vec::new();
+    for id in html
+        .split("href=\"/woods/")
         .skip(1)
         .filter_map(|rest| rest.split('"').next())
-        .map(str::to_owned)
-        .collect()
+    {
+        // A card links to its wood more than once.
+        if !ids.iter().any(|seen| seen == id) {
+            ids.push(id.to_owned());
+        }
+    }
+
+    ids
 }
 
 fn delta(text: &str) -> String {

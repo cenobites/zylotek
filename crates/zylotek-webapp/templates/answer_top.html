@@ -1,7 +1,7 @@
 <div class="results">
 {% if !summary.is_empty() %}<p>{{ t.understood }} <strong>{{ summary }}</strong></p>{% endif %}
-<p class="chips">{{ t.looked_at }}
-{% for chip in criteria %}<span>{{ chip }}</span>{% endfor %}
+<p class="my-2">{{ t.looked_at }}
+{% for chip in criteria %}<span class="my-0.5 mr-1 ml-1 inline-block rounded-full border border-line px-3">{{ chip }}</span>{% endfor %}
 </p>
 {% if cards.is_empty() %}
 <p>{{ t.no_matches }}</p>
@@ -11,28 +11,28 @@
 {% for card in cards %}
 <div class="card wood-card" id="card-{{ card.id }}">
 <label>{% if can_compare %}<input type="checkbox" name="id" value="{{ card.id }}"> {% endif %}<strong>{{ card.name }}</strong></label>
-<em class="muted">{{ card.scientific_name }}</em> — {{ t.match_word }} <strong>{{ card.percent }}%</strong>
-<div class="bar"><i style="width:{{ card.percent }}%"></i></div>
-<ul>
-{% for reason in card.reasons %}<li>{{ reason.label }}: {{ reason.value }} <span class="muted">({{ reason.better_than }})</span></li>{% endfor %}
+<em class="text-muted">{{ card.scientific_name }}</em> — {{ t.match_word }} <strong>{{ card.percent }}%</strong>
+<div class="my-2 h-1.5 overflow-hidden rounded bg-line"><i class="block h-full bg-accent" style="width:{{ card.percent }}%"></i></div>
+<ul class="my-2 list-disc pl-6">
+{% for reason in card.reasons %}<li>{{ reason.label }}: {{ reason.value }} <span class="text-muted">({{ reason.better_than }})</span></li>{% endfor %}
 </ul>
-<a class="peek" href="#peek-{{ card.id }}">{{ t.full_details }} →</a>
+<a class="peek font-semibold" href="#peek-{{ card.id }}">{{ t.full_details }} →</a>
 </div>
 {% endfor %}
-{% if can_compare %}<p><button type="submit">{{ t.compare_submit_range }}</button></p>{% endif %}
+{% if can_compare %}<p class="mt-3"><button class="btn" type="submit">{{ t.compare_submit_range }}</button></p>{% endif %}
 </form>
 {% for card in cards %}
-<aside class="drawer" id="peek-{{ card.id }}" aria-label="{{ card.name }}">
-<a class="backdrop" href="#card-{{ card.id }}" tabindex="-1" aria-hidden="true"></a>
-<div class="sheet">
-<div class="sheet-bar"><strong>{{ card.name }}</strong>
+<aside class="drawer group/drawer pointer-events-none invisible fixed inset-0 z-10 flex justify-end target:pointer-events-auto target:visible" id="peek-{{ card.id }}" aria-label="{{ card.name }}">
+<a class="absolute inset-0 bg-black/40 opacity-0 transition-opacity duration-200 group-target/drawer:opacity-100 motion-reduce:transition-none" href="#card-{{ card.id }}" tabindex="-1" aria-hidden="true"></a>
+<div class="relative flex h-full w-[min(40rem,100%)] translate-x-full flex-col border-l border-line bg-bg transition-transform duration-250 ease-out group-target/drawer:translate-x-0 motion-reduce:transition-none">
+<div class="flex flex-wrap items-baseline gap-4 border-b border-line px-4 py-3"><strong>{{ card.name }}</strong>
 <a href="/woods/{{ card.id }}" target="_blank" rel="noopener">{{ t.open_full_page }}</a>
-<a class="close" href="#card-{{ card.id }}">✕ {{ t.close }}</a></div>
-<iframe src="/woods/{{ card.id }}?embed=1" loading="lazy" title="{{ card.name }}"></iframe>
+<a class="close ml-auto" href="#card-{{ card.id }}">✕ {{ t.close }}</a></div>
+<iframe class="w-full flex-1 border-0 bg-bg" src="/woods/{{ card.id }}?embed=1" loading="lazy" title="{{ card.name }}"></iframe>
 </div>
 </aside>
 {% endfor %}
 </div>
 <h2>{{ t.in_short }}</h2>
-<p class="writing muted"><span class="spinner" aria-hidden="true"></span> {{ t.writing }}</p>
-<div class="card prose">{% endif %}
+<p class="writing text-muted group-has-[.done]/answer:hidden"><span class="spinner" aria-hidden="true"></span> {{ t.writing }}</p>
+<div class="prose card whitespace-pre-wrap after:animate-blink after:text-accent after:content-['▍'] group-has-[.done]/answer:after:content-none motion-reduce:after:animate-none">{% endif %}

@@ -4,29 +4,38 @@
 //! the ranking when it is ready, then the explanation as it is written, and CSS `:has()`
 //! hides each progress note once what it waits for has arrived.
 
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use askama::Template;
 use axum::{
     Form, Router,
     body::Body,
-    extract::{FromRequestParts, Path, Query, RawQuery, State},
+    extract::{FromRequestParts, Path, Query, RawQuery, Request, State},
     http::{StatusCode, header, request::Parts},
+    middleware::Next,
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
 use futures::Stream;
 use serde::Deserialize;
 use std::convert::Infallible;
+use tower::limit::ConcurrencyLimitLayer;
+use tower_http::{
+    compression::CompressionLayer, limit::RequestBodyLimitLayer, timeout::TimeoutLayer,
+    trace::TraceLayer,
+};
 
 use crate::{
+    browse::{Entry, Query as BrowseQuery},
     clients::{ApiClient, AssistantClient, LiveAnswer, Piece, is_id},
     error::BackendError,
     i18n::{Lang, Strings},
-    view::{self, CardView, Fact, WoodRow, WoodView},
+    view::{self, BrowseView, CardView, CompareColumn, CompareRow, WoodView},
 };
 
-pub const PAGE_SIZE: usize = 24;
 pub const MIN_COMPARE: usize = 2;
 pub const MAX_COMPARE: usize = 4;
 const MAX_QUESTION_CHARS: usize = 1000;
@@ -45,11 +54,37 @@ pub fn router(state: AppState) -> Router {
         .route("/woods/{id}", get(wood))
         .route("/compare", get(compare))
         .route("/static/history.js", get(history_script))
+        .route("/static/browse.js", get(browse_script))
+        .route("/static/app.css", get(stylesheet))
         .route("/health", get(|| async { "OK" }))
         .fallback(|| async { PageError::NotFound(Subject::Page) })
+        .layer(axum::middleware::from_fn(logging))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(axum::middleware::from_fn(localize))
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new())
+        .layer(TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(5),
+        ))
+        .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1MB
+        .layer(ConcurrencyLimitLayer::new(100)) // 100 concurrent requests
         .with_state(state)
+}
+
+pub async fn logging(req: Request, next: Next) -> Response {
+    let time = Instant::now();
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let response = next.run(req).await;
+    log::info!(
+        "{} {} -> {} ({:?} ms)",
+        method,
+        uri,
+        response.status(),
+        time.elapsed().as_millis()
+    );
+    response
 }
 
 /// Scripts from this site only (the ask history; no inline script), framing by this site only
@@ -63,7 +98,7 @@ async fn security_headers(
     for (name, value) in [
         (
             "content-security-policy",
-            "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'self'",
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'self'",
         ),
         ("x-content-type-options", "nosniff"),
         ("referrer-policy", "no-referrer"),
@@ -165,10 +200,7 @@ struct AnswerFailed {
 #[template(path = "woods.html")]
 struct WoodsPage {
     t: &'static Strings,
-    showing: String,
-    rows: Vec<WoodRow>,
-    previous: Option<usize>,
-    next: Option<usize>,
+    v: BrowseView,
 }
 
 #[derive(Template)]
@@ -190,13 +222,8 @@ struct WoodEmbed {
 #[template(path = "compare.html")]
 struct ComparePage {
     t: &'static Strings,
-    names: Vec<(String, String, String)>,
+    columns: Vec<CompareColumn>,
     rows: Vec<CompareRow>,
-}
-
-struct CompareRow {
-    label: &'static str,
-    values: Vec<String>,
 }
 
 #[derive(Template)]
@@ -497,40 +524,53 @@ pub fn escape(text: &str) -> String {
     escaped
 }
 
-#[derive(Deserialize)]
-struct Paging {
-    offset: Option<usize>,
-}
-
 async fn woods(
     lang: Lang,
     State(state): State<AppState>,
-    Query(paging): Query<Paging>,
+    RawQuery(raw): RawQuery,
 ) -> Result<Html<String>, PageError> {
-    let offset = paging.offset.unwrap_or(0);
-    let page = state.api.list(offset, PAGE_SIZE).await?;
-    let shown = page.items.len();
-
-    let first = if shown == 0 { 0 } else { offset + 1 };
+    let all = state.api.all().await?;
+    let entries: Vec<Entry> = all.iter().map(Entry::new).collect();
+    let query = BrowseQuery::parse(raw.as_deref());
+    let results = query.search(&entries);
 
     render(WoodsPage {
         t: lang.strings(),
-        showing: lang.strings().showing(first, offset + shown, page.total),
-        rows: page.items.iter().map(|w| view::row(w, lang)).collect(),
-        previous: (offset > 0).then(|| offset.saturating_sub(PAGE_SIZE)),
-        next: ((offset + shown) as u64 > 0 && ((offset + shown) as u64) < page.total)
-            .then_some(offset + shown),
+        v: view::browse(entries.len(), &query, &results, lang),
     })
 }
 
-/// Saves finished answers in the browser and lists them; the one script of the site.
+/// The site's scripts are small enhancements served from its own address; the CSP allows no
+/// other. Saves finished answers in the browser and lists them.
 async fn history_script() -> Response {
+    script(include_str!("../static/history.js"))
+}
+
+/// Keeps the woods picked for comparison across pages, and applies filters as they are ticked.
+async fn browse_script() -> Response {
+    script(include_str!("../static/browse.js"))
+}
+
+/// The styles, built from `assets/tailwind.css` by `npm run build` (`make css`) and committed so
+/// that cargo alone runs the site. Inline `style` attributes remain for bar widths and delays.
+async fn stylesheet() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        include_str!("../static/app.css"),
+    )
+        .into_response()
+}
+
+fn script(source: &'static str) -> Response {
     (
         [
             (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
             (header::CACHE_CONTROL, "no-cache"),
         ],
-        include_str!("../static/history.js"),
+        source,
     )
         .into_response()
 }
@@ -591,25 +631,11 @@ async fn compare(
     for id in &ids {
         woods.push(state.api.get(id).await?);
     }
-    let columns: Vec<Vec<Fact>> = woods.iter().map(|w| view::facts(w, lang)).collect();
-    let rows = columns[0]
-        .iter()
-        .enumerate()
-        .map(|(n, fact)| CompareRow {
-            label: fact.label,
-            values: columns
-                .iter()
-                .map(|column| column[n].value.clone())
-                .collect(),
-        })
-        .collect();
+    let (columns, rows) = view::comparison(&woods, woods.len() > MIN_COMPARE, lang);
 
     render(ComparePage {
         t: lang.strings(),
-        names: woods
-            .iter()
-            .map(|w| (w.id.clone(), w.name.clone(), w.scientific_name.clone()))
-            .collect(),
+        columns,
         rows,
     })
 }
@@ -625,7 +651,7 @@ mod tests {
     use tower::ServiceExt;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
-        matchers::{method, path, query_param},
+        matchers::{method, path},
     };
 
     use super::*;
@@ -648,6 +674,16 @@ mod tests {
                 api: Arc::new(ApiClient::new(&self.api.uri())),
                 assistant: Arc::new(AssistantClient::new(&self.assistant.uri(), None)),
             })
+        }
+
+        /// The API's whole catalogue, in one page.
+        async fn catalogue(&self, woods: &[zylotek_contracts::woods::WoodResponse]) {
+            Mock::given(path("/api/v1/woods"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(
+                    json!({"items": woods, "total": woods.len(), "offset": 0, "limit": 100}),
+                ))
+                .mount(&self.api)
+                .await;
         }
 
         async fn wood(&self, id: &str, name: &str) {
@@ -743,10 +779,10 @@ mod tests {
         let (status, html, headers) = get(&backends.app(), "/").await;
 
         assert_eq!(status, StatusCode::OK);
-        assert!(html.contains(r#"<form method="post" action="/ask" class="ask">"#));
+        assert!(html.contains(r#"action="/ask" class="ask mt-4">"#));
         assert!(html.contains("<textarea"));
         assert!(
-            html.contains(r#"<button type="submit" name="question" value="I need a stable wood for a wide kitchen countertop that won&#39;t warp.">"#),
+            html.contains(r#"type="submit" name="question" value="I need a stable wood for a wide kitchen countertop that won&#39;t warp.">"#),
             "an example is asked in one click"
         );
         assert!(html.contains(r#"href="/woods""#));
@@ -819,9 +855,9 @@ mod tests {
 
         let at = |needle: &str| html.find(needle).unwrap_or_else(|| panic!("no {needle}"));
         assert!(html.contains("Reading your project"));
-        assert!(at(r#"class="thinking card""#) < at(r#"class="results""#));
-        assert!(at(r#"class="results""#) < at(r#"class="writing muted""#));
-        assert!(at("Cedro is steady") < at(r#"class="muted done""#));
+        assert!(at(r#"class="thinking card "#) < at(r#"class="results""#));
+        assert!(at(r#"class="results""#) < at(r#"class="writing text-muted "#));
+        assert!(at("Cedro is steady") < at(r#"class="done "#));
     }
 
     #[tokio::test]
@@ -834,11 +870,11 @@ mod tests {
 
         let (_, html) = post_question(&backends.app(), "a table").await;
 
-        assert!(html.contains(r##"<a class="peek" href="#peek-a">"##));
-        assert!(html.contains(r#"<aside class="drawer" id="peek-a""#));
-        assert!(html.contains(r#"<iframe src="/woods/a?embed=1""#));
+        assert!(html.contains(r##"href="#peek-a""##));
+        assert!(html.contains(r#"id="peek-a" aria-label="Cedro""#));
+        assert!(html.contains(r#"src="/woods/a?embed=1" loading="lazy""#));
         assert!(
-            html.contains(r##"<a class="close" href="#card-a">"##),
+            html.contains(r##"class="close ml-auto" href="#card-a">"##),
             "closing returns to the card"
         );
         assert!(html.contains(r#"id="card-a""#));
@@ -856,7 +892,7 @@ mod tests {
         let (gone, _, _) = get(&backends.app(), "/history").await;
 
         assert!(
-            page.contains(r#"<aside class="sidebar" id="sidebar" data-sidebar hidden"#),
+            page.contains(r#"id="sidebar" data-sidebar hidden"#),
             "the script shows it; without one there is no history to list"
         );
         assert!(page.contains("+ New question") && page.contains("data-history-list"));
@@ -864,6 +900,16 @@ mod tests {
         assert!(page.contains("data-sidebar-toggle") && page.contains("data-home"));
         assert!(portuguese.contains("Nova pergunta") && portuguese.contains("Limpar histórico"));
         assert_eq!(gone, StatusCode::NOT_FOUND, "no separate history page");
+        let (css_status, css, css_headers) = get(&backends.app(), "/static/app.css").await;
+        assert_eq!(css_status, StatusCode::OK);
+        assert_eq!(css_headers[header::CONTENT_TYPE], "text/css; charset=utf-8");
+        assert!(
+            css.contains(".btn") && css.contains("border-l-tag-hardness"),
+            "the built stylesheet has the shared shapes and the tag colours; run `make css`"
+        );
+        let (browse_status, browse_script, _) = get(&backends.app(), "/static/browse.js").await;
+        assert_eq!(browse_status, StatusCode::OK);
+        assert!(browse_script.contains("zylotek.compare.v1"));
         assert_eq!(script_status, StatusCode::OK);
         assert_eq!(
             headers[header::CONTENT_TYPE],
@@ -885,13 +931,26 @@ mod tests {
 
         let tag = r#"<script src="/static/history.js" defer></script>"#;
         assert!(home.contains(tag) && html.contains(tag));
-        assert!(html.contains(r#"<main class="answer" data-question="a &#34;big&#34; table">"#));
+        assert!(html.contains(r#"data-question="a &#34;big&#34; table">"#));
         assert!(
             html.contains("data-sidebar"),
             "the answer page has the sidebar too"
         );
-        let (_, woods, _) = get(&backends.app(), "/woods").await;
-        assert!(!woods.contains("data-sidebar "), "browsing has no sidebar");
+        backends.wood("a", "Cedro").await;
+        backends.catalogue(&[]).await;
+        let app = backends.app();
+        for page in ["/woods", "/woods/a", "/compare?id=a&id=a2", "/nowhere"] {
+            let (_, other, _) = get(&app, page).await;
+            assert!(
+                other.contains("data-sidebar-toggle") && other.contains("data-sidebar hidden"),
+                "{page} has the hamburger and the sidebar it opens"
+            );
+        }
+        let (_, embedded, _) = get(&app, "/woods/a?embed=1").await;
+        assert!(
+            !embedded.contains("data-sidebar"),
+            "the drawer's page has neither"
+        );
     }
 
     #[tokio::test]
@@ -903,11 +962,9 @@ mod tests {
         let (_, full, _) = get(&backends.app(), "/woods/a").await;
 
         assert_eq!(status, StatusCode::OK);
-        assert!(
-            embedded.contains("<h1>Cedro</h1>") && embedded.contains(r#"<body class="embed">"#)
-        );
-        assert!(!embedded.contains("<header>") && !embedded.contains("All woods"));
-        assert!(full.contains("<header>") && full.contains("All woods"));
+        assert!(embedded.contains("<h1>Cedro</h1>") && embedded.contains(r#"<body class="embed "#));
+        assert!(!embedded.contains("<header") && !embedded.contains("All woods"));
+        assert!(full.contains("<header") && full.contains("All woods"));
     }
 
     #[tokio::test]
@@ -988,7 +1045,7 @@ mod tests {
         assert!(html_rude.contains("the question is empty"));
         assert!(html_broken.contains("had a problem answering"));
         assert!(
-            html_broken.contains(r#"class="results card failed""#),
+            html_broken.contains("results card failed"),
             "it hides the panel"
         );
         assert!(
@@ -1016,56 +1073,138 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_list_pages_through_the_catalogue() {
+    async fn browsing_shows_cards_with_tags_filters_and_counts() {
         let backends = Backends::start().await;
-        let items = |names: &[&str]| -> Vec<Value> {
-            names
-                .iter()
-                .map(|n| wood_json(&format!("id-{n}"), n))
-                .collect()
-        };
-        Mock::given(path("/api/v1/woods"))
-            .and(query_param("offset", "0"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                json!({"items": items(&["Ipê", "Cedro"]), "total": 50, "offset": 0, "limit": 24}),
-            ))
-            .mount(&backends.api)
+        backends
+            .catalogue(&crate::browse::testing::catalogue())
             .await;
-        Mock::given(path("/api/v1/woods"))
-            .and(query_param("offset", "24"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                json!({"items": items(&["Pinus"]), "total": 25, "offset": 24, "limit": 24}),
-            ))
-            .mount(&backends.api)
-            .await;
-        Mock::given(path("/api/v1/woods"))
-            .and(query_param("offset", "100"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(json!({"items": [], "total": 25, "offset": 100, "limit": 24})),
+
+        let (status, html, _) = get(&backends.app(), "/woods").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains("5 woods"));
+        assert_eq!(html.matches("data-card>").count(), 5);
+        assert!(html.contains(r#"href="/woods/id-ipê""#));
+        assert!(
+            html.contains(
+                r#"<a class="tag border-l-tag-hardness" data-tag="hardness" href="/woods?hardness=very-hard">Very hard</a>"#
             )
-            .mount(&backends.api)
+        );
+        assert!(html.contains(r#"<a class="tag border-l-tag-color" data-tag="color" href="/woods?color=marrom">Brown</a>"#));
+        assert!(html.contains(
+            r#"<a class="tag border-l-tag-region" data-tag="region" href="/woods?region=PA">PA</a>"#
+        ));
+        assert!(html.contains(
+            r#"name="color" value="marrom"> <span class="flex-1">Brown</span> <em class="text-sm text-muted not-italic">3</em>"#
+        ));
+        assert!(html.contains(r#"<input type="checkbox" name="family" value="Meliaceae">"#));
+        assert!(html.contains("<option value=\"name\" selected>Name A–Z</option>"));
+        assert!(
+            !html.contains(r#"value="relevance""#),
+            "no search, no relevance"
+        );
+        assert!(html.contains(r#"data-compare data-name="Ipê""#));
+        assert!(html.contains("1800 kgf") && html.contains("No photo"));
+        assert!(html.contains(r#"src="https://img.example/ipe.jpg""#));
+        assert!(html.contains("Page 1 of 1") && !html.contains("Clear all"));
+        assert!(html.contains(r#"href="/woods" aria-current="true">Cards</a>"#));
+        assert!(html.contains(r#"href="/woods?view=list">List</a>"#));
+    }
+
+    #[tokio::test]
+    async fn searching_and_filtering_show_the_chips_that_undo_them() {
+        let backends = Backends::start().await;
+        backends
+            .catalogue(&crate::browse::testing::catalogue())
             .await;
         let app = backends.app();
 
-        let (_, first, _) = get(&app, "/woods").await;
-        let (_, last, _) = get(&app, "/woods?offset=24").await;
-        let (_, past, _) = get(&app, "/woods?offset=100").await;
+        let (_, one, _) = get(&app, "/woods?q=ipe&hardness=very-hard").await;
+        let (_, none, _) = get(&app, "/woods?q=zzzz").await;
 
-        assert!(first.contains("Showing 1–2 of 50"));
+        assert!(one.contains("1 of 5 woods"));
+        assert_eq!(one.matches("data-card>").count(), 1);
+        assert!(one.contains(
+            r#"<a class="chip" href="/woods?hardness=very-hard" title="Clear all">“ipe” ✕</a>"#
+        ));
+        assert!(one.contains("Very hard ✕"));
+        assert!(one.contains("Clear all"));
+        assert!(one.contains("<option value=\"relevance\" selected>Best match</option>"));
+        assert!(none.contains("No wood matches this search.") && none.contains("Try fewer words"));
+        assert!(none.contains("0 of 5 woods"));
+    }
+
+    #[tokio::test]
+    async fn every_kind_of_filter_has_a_chip_and_the_list_view_sorts_by_its_columns() {
+        let backends = Backends::start().await;
+        backends
+            .catalogue(&crate::browse::testing::catalogue())
+            .await;
+        let query = "q=ipe&family=Bignoniaceae&color=marrom&region=PA&hardness=very-hard&density=heavy\
+                     &stability=moderate&hardness_min=1000&hardness_max=2000&density_min=0.5&density_max=1.2\
+                     &image=1&view=list&sort=hardest";
+
+        let (_, html, _) = get(&backends.app(), &format!("/woods?{query}")).await;
+
+        for chip in [
+            "Bignoniaceae ✕",
+            "Brown ✕",
+            "PA ✕",
+            "Very hard ✕",
+            "Heavy ✕",
+            "Moderately stable ✕",
+            "Janka: 1000–2000 ✕",
+            "Density: 0.5–1.2 ✕",
+            "Only woods with a photo ✕",
+        ] {
+            assert!(html.contains(chip), "{chip}");
+        }
+        assert!(html.contains(r#"<table class="woods-list data-table">"#));
+        assert!(html.contains(r#"<input type="hidden" name="view" value="list">"#));
+        assert!(html.contains(r#"name="hardness_min" min="0" step="any" value="1000""#));
+        assert!(html.contains("Hardness ▼"), "the active sort is marked");
         assert!(
-            first.contains(r#"href="/woods?offset=2""#),
-            "next starts after what was shown"
+            html.contains("sort=softest"),
+            "and a second click reverses it"
         );
-        assert!(!first.contains("Previous"));
-        assert!(first.contains(r#"href="/woods/id-Ipê""#));
-        assert!(first.contains("900 kgf"));
-        assert!(last.contains("Showing 25–25 of 25"));
-        assert!(last.contains(r#"href="/woods?offset=0""#) && !last.contains("Next"));
-        assert!(past.contains("Showing 0–100 of 25") && past.contains("Previous"));
+        assert!(html.contains("sort=heaviest") && html.contains("sort=name"));
+        assert!(html.contains("sort=stablest"));
+        assert!(html.contains(r#"<option value="hardest" selected>"#));
+    }
+
+    #[tokio::test]
+    async fn browsing_is_paged_and_a_page_past_the_end_shows_the_last() {
+        let backends = Backends::start().await;
+        let woods: Vec<_> = (0..30)
+            .map(|n| {
+                crate::browse::testing::wood(
+                    &format!("W{n:02}"),
+                    "F",
+                    "c",
+                    "X, PA",
+                    Some(100.0),
+                    Some(0.5),
+                    Some(5.0),
+                )
+            })
+            .collect();
+        backends.catalogue(&woods).await;
+        let app = backends.app();
+
+        let (_, first, _) = get(&app, "/woods").await;
+        let (_, second, _) = get(&app, "/woods?page=2").await;
+        let (_, past, _) = get(&app, "/woods?page=99").await;
+
+        assert!(first.contains("Page 1 of 2") && first.contains(r#"href="/woods?page=2">Next →"#));
+        assert!(!first.contains("← Previous"));
+        assert_eq!(first.matches("data-card>").count(), 24);
+        assert!(second.contains("Page 2 of 2") && second.contains(r#"href="/woods">← Previous"#));
+        assert_eq!(second.matches("data-card>").count(), 6);
+        assert!(past.contains("Page 2 of 2"));
         assert_eq!(
-            get(&app, "/woods?offset=-1").await.0,
-            StatusCode::BAD_REQUEST
+            backends.api.received_requests().await.unwrap().len(),
+            1,
+            "the catalogue is fetched once and reused"
         );
     }
 
@@ -1105,7 +1244,17 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert!(html.contains("Cedro") && html.contains("Ipê"));
-        assert!(html.contains("<th>Janka hardness</th><td>900 kgf</td><td>900 kgf</td>"));
+        assert!(html.contains(
+            r#"<th>Janka hardness</th><td>900 kgf<div class="mt-1 h-1.5 min-w-20 overflow-hidden rounded bg-line"><i class="block h-full bg-accent" style="width:100%"></i></div></td><td>900 kgf"#
+        ));
+        assert!(
+            !html.contains(r#"class="best "#),
+            "equal figures have no best"
+        );
+        assert!(
+            !html.contains("✕ Remove"),
+            "two woods is the least to compare"
+        );
         assert_eq!(
             backends.api.received_requests().await.unwrap().len(),
             2,
@@ -1423,21 +1572,58 @@ mod tests {
     #[tokio::test]
     async fn the_catalogue_page_is_translated() {
         let backends = Backends::start().await;
-        Mock::given(path("/api/v1/woods"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "items": [wood_json("0b9c4f1e-aaaa-4bbb-8ccc-123456789abc", "Cedro")],
-                "total": 30, "limit": 24, "offset": 0,
-            })))
-            .mount(&backends.api)
+        backends
+            .catalogue(&crate::browse::testing::catalogue())
             .await;
 
-        let (_, html, _) = get_with(&backends.app(), "/woods", &[("accept-language", "pt")]).await;
+        let (_, html, _) = get_with(
+            &backends.app(),
+            "/woods?q=ipe",
+            &[("accept-language", "pt")],
+        )
+        .await;
 
         assert!(html.contains("Madeiras brasileiras"));
-        assert!(html.contains("Mostrando 1–1 de 30."));
-        assert!(html.contains("Nome científico") && html.contains("Família"));
-        assert!(html.contains("aria-label=\"Comparar Cedro\""));
-        assert!(html.contains("Próxima →"));
+        assert!(html.contains("1 de 5 madeiras"));
+        assert!(html.contains("Pesquisar") && html.contains("Filtros"));
+        assert!(html.contains("Cor do cerne") && html.contains("Marrom"));
+        assert!(html.contains("Muito dura") && html.contains("Mais relevante"));
+        assert!(html.contains("aria-label=\"Comparar Ipê\""));
+        assert!(html.contains("Página 1 de 1") && html.contains("Cartões"));
+    }
+
+    #[tokio::test]
+    async fn comparing_highlights_the_best_figures_and_lets_a_wood_be_taken_out() {
+        let backends = Backends::start().await;
+        for (id, name, janka, shrinkage) in [
+            ("a", "Cedro", 450.0, 8.0),
+            ("b", "Ipê", 1800.0, 12.0),
+            ("c", "Pinus", 900.0, 0.0),
+        ] {
+            let mut body = wood_json(id, name);
+            body["mechanical_properties"]["dry"]["janka_hardness"]["parallel_to_grain"] =
+                json!(janka);
+            body["physical_properties"] = json!({"shrinkage": {"volumetric": shrinkage}});
+            Mock::given(path(format!("/api/v1/woods/{id}")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .mount(&backends.api)
+                .await;
+        }
+
+        let (_, html, _) = get(&backends.app(), "/compare?id=a&id=b&id=c").await;
+
+        assert!(
+            html.contains(r#"<td class="best bg-accent/15 font-bold">1800 kgf"#),
+            "the hardest is highlighted"
+        );
+        assert!(
+            html.contains(r#"<td class="best bg-accent/15 font-bold">0.0 %"#),
+            "and the least shrinking"
+        );
+        assert!(html.contains(r#"style="width:25%""#), "450 against 1800");
+        assert!(html.contains(r#"href="/compare?id=b&#38;id=c">✕ Remove"#));
+        assert!(html.contains("Add another wood"));
+        assert!(html.contains(r#"data-tag="hardness" href="/woods?hardness=very-hard">"#));
     }
 
     #[tokio::test]

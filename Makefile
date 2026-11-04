@@ -2,7 +2,7 @@
         test test-unit test-integration test-known-bugs \
         cov cov-unit cov-integration cov-html \
         bench bench-check fuzz fuzz-build \
-        dev clean help
+        css css-watch dev clean help
 
 # =============================================================================
 # Setup
@@ -12,6 +12,18 @@ setup: prek-install
 	cargo install --locked prek sccache cargo-llvm-cov cargo-fuzz cargo-insta \
 	cargo-audit cargo-outdated mprocs watchexec-cli
 	rustup toolchain install nightly --profile minimal  # cargo-fuzz needs it
+
+# =============================================================================
+# Web app styles (Tailwind CSS)
+# =============================================================================
+
+# Rebuild crates/zylotek-webapp/static/app.css after changing a template, a script or
+# assets/tailwind.css. The built file is committed, so running the site needs no Node.
+css:
+	cd crates/zylotek-webapp && npm ci --no-audit --no-fund && npm run build
+
+css-watch:
+	cd crates/zylotek-webapp && npm run watch
 
 # =============================================================================
 # Pre-commit hooks

@@ -2,12 +2,16 @@
 //! token when one is configured. The assistant usually runs on another machine, so unlike the
 //! read-only wood API it spends the GPU and is not left open by accident.
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, FromRequestParts, State, rejection::JsonRejection},
+    extract::{DefaultBodyLimit, FromRequestParts, Request, State, rejection::JsonRejection},
     http::{HeaderValue, StatusCode, header, request::Parts},
+    middleware::Next,
     response::{
         IntoResponse, Response,
         sse::{Event, KeepAlive, Sse},
@@ -15,6 +19,14 @@ use axum::{
     routing::{get, post},
 };
 use futures::{Stream, StreamExt, stream};
+use tower::limit::ConcurrencyLimitLayer;
+use tower_http::{
+    compression::CompressionLayer,
+    cors::{Any, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    timeout::TimeoutLayer,
+    trace::TraceLayer,
+};
 use zylotek_contracts::{
     ErrorResponse,
     assistant::{AskRequest, AskResponse, AssistantHealth, events},
@@ -37,12 +49,42 @@ pub fn router(assistant: Arc<Assistant>, token: Option<String>) -> Router {
         token: token.map(Arc::from),
     };
 
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     Router::new()
         .route("/health", get(health))
         .route("/v1/ask", post(ask))
         .route("/v1/ask/stream", post(ask_stream))
+        .layer(axum::middleware::from_fn(logging_middleware))
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new())
+        .layer(TimeoutLayer::with_status_code(
+            axum::http::StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(5),
+        ))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1MB
+        .layer(ConcurrencyLimitLayer::new(100)) // 100 concurrent requests
+        .layer(cors)
         .with_state(state)
+}
+
+pub async fn logging_middleware(req: Request, next: Next) -> Response {
+    let time = Instant::now();
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let response = next.run(req).await;
+    log::info!(
+        "{} {} -> {} ({:?} ms)",
+        method,
+        uri,
+        response.status(),
+        time.elapsed().as_millis()
+    );
+    response
 }
 
 async fn health(State(state): State<AppState>) -> Json<AssistantHealth> {

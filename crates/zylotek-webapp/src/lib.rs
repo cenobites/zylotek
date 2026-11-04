@@ -3,6 +3,7 @@
 //! `zylotek-assistant` over HTTP using the shared contract types, and never touches the
 //! database itself.
 
+pub mod browse;
 pub mod clients;
 pub mod error;
 pub mod i18n;

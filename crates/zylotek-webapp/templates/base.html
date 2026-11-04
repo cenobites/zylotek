@@ -1,17 +1,14 @@
 <!doctype html>
 <html lang="{{ t.html_lang }}">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+{% include "head.html" %}
 <title>{% block title %}Zylotek{% endblock %} · Zylotek</title>
-{% include "style.html" %}
-<script src="/static/history.js" defer></script>
 </head>
-<body>
+<body class="group/body bg-bg font-sans leading-relaxed text-fg [--page:84rem]">
 {% include "nav.html" %}
-<div class="layout">
-{% block sidebar %}{% endblock %}
-<main>
+<div>
+{% include "sidebar.html" %}
+<main class="mx-auto w-full max-w-(--page) p-4">
 {% block content %}{% endblock %}
 </main>
 </div>

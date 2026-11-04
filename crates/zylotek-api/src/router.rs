@@ -4,6 +4,7 @@ use axum::{
     Router,
     routing::{get, post},
 };
+use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
@@ -45,6 +46,7 @@ pub fn router(state: AppState) -> Router {
             Duration::from_secs(5),
         ))
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1MB
+        .layer(ConcurrencyLimitLayer::new(100)) // 100 concurrent requests
         .layer(cors)
 }
 

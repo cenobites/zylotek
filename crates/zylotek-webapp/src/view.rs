@@ -1,6 +1,9 @@
 //! Turns contract types into display-ready strings, so templates stay free of logic.
 
-use crate::i18n::Lang;
+use crate::{
+    browse::{Density, Entry, Hardness, Query, Results, Sort, Stability, View},
+    i18n::Lang,
+};
 use zylotek_contracts::{
     assistant::{Property, Recommendation},
     woods::{WoodResponse, WorkabilityRating},
@@ -127,41 +130,6 @@ fn rating(rating: WorkabilityRating) -> Option<f64> {
     Some(step / 6.0)
 }
 
-pub struct WoodRow {
-    pub id: String,
-    pub name: String,
-    pub scientific_name: String,
-    pub family: String,
-    pub hardness: String,
-    pub density: String,
-    /// Names the row's checkbox for screen readers.
-    pub compare_label: String,
-}
-
-/// Where `facts` puts the figures a table row shows.
-const FAMILY: usize = 0;
-const DENSITY: usize = 1;
-const HARDNESS: usize = 3;
-
-pub fn row(wood: &WoodResponse, lang: Lang) -> WoodRow {
-    let facts = facts(wood, lang);
-    let value = |index: usize| {
-        facts
-            .get(index)
-            .map_or_else(|| MISSING.to_owned(), |fact| fact.value.clone())
-    };
-
-    WoodRow {
-        id: wood.id.clone(),
-        name: wood.name.clone(),
-        scientific_name: wood.scientific_name.clone(),
-        family: value(FAMILY),
-        hardness: value(HARDNESS),
-        density: value(DENSITY),
-        compare_label: lang.strings().compare_label(&wood.name),
-    }
-}
-
 pub struct WoodView {
     pub id: String,
     pub name: String,
@@ -180,7 +148,7 @@ pub struct WoodView {
 }
 
 /// Only web addresses become links or images: the data comes from a scraped site.
-fn web_url(url: &Option<String>) -> Option<String> {
+pub fn web_url(url: &Option<String>) -> Option<String> {
     url.as_ref()
         .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
         .cloned()
@@ -222,6 +190,555 @@ pub fn detail(wood: &WoodResponse, lang: Lang) -> WoodView {
         preservation: description.preservation.clone(),
         workability_notes: description.workability_notes.clone(),
     }
+}
+
+// ---- browsing -------------------------------------------------------------------------
+
+/// A short label on a wood: its hardness band, colour, place... Following it filters by it.
+pub struct TagView {
+    pub label: String,
+    pub href: String,
+    /// What the tag is about, for styling.
+    pub kind: &'static str,
+}
+
+/// A wood as the browse page shows it, as a card or as a row.
+pub struct ItemView {
+    pub id: String,
+    pub name: String,
+    pub scientific_name: String,
+    pub common_names: String,
+    pub family: String,
+    pub image: Option<String>,
+    pub tags: Vec<TagView>,
+    pub hardness: String,
+    pub density: String,
+    pub shrinkage: String,
+    /// Names the compare checkbox for screen readers.
+    pub compare_label: String,
+}
+
+fn add<T: PartialEq>(list: &mut Vec<T>, item: T) {
+    if !list.contains(&item) {
+        list.push(item);
+    }
+}
+
+pub fn item(entry: &Entry, query: &Query, lang: Lang) -> ItemView {
+    let text = lang.strings();
+    let wood = entry.wood;
+    let tag = |kind: &'static str, label: String, href: String| TagView { label, href, kind };
+    let mut tags = Vec::new();
+    if let Some(class) = entry.hardness_class() {
+        tags.push(tag(
+            "hardness",
+            text.hardness_classes[class.index()].to_owned(),
+            query.link(|q| add(&mut q.hardness, class)),
+        ));
+    }
+    if let Some(class) = entry.density_class() {
+        tags.push(tag(
+            "density",
+            text.density_classes[class.index()].to_owned(),
+            query.link(|q| add(&mut q.density, class)),
+        ));
+    }
+    if let Some(class) = entry.stability_class() {
+        tags.push(tag(
+            "stability",
+            text.stability_classes[class.index()].to_owned(),
+            query.link(|q| add(&mut q.stability, class)),
+        ));
+    }
+    if let Some(color) = &entry.color {
+        tags.push(tag(
+            "color",
+            text.color_name(color),
+            query.link(|q| add(&mut q.colors, color.clone())),
+        ));
+    }
+    if let Some(region) = &entry.region {
+        tags.push(tag(
+            "region",
+            region.clone(),
+            query.link(|q| add(&mut q.regions, region.clone())),
+        ));
+    }
+
+    ItemView {
+        id: wood.id.clone(),
+        name: wood.name.clone(),
+        scientific_name: wood.scientific_name.clone(),
+        common_names: wood
+            .details
+            .common_names
+            .iter()
+            .filter(|name| **name != wood.name)
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", "),
+        family: entry.family.clone().unwrap_or_else(|| MISSING.to_owned()),
+        image: entry.image.clone(),
+        tags,
+        hardness: number(entry.hardness, 0, "kgf", lang),
+        density: number(entry.density, 2, "g/cm³", lang),
+        shrinkage: number(entry.shrinkage, 1, "%", lang),
+        compare_label: text.compare_label(&wood.name),
+    }
+}
+
+pub struct Choice {
+    pub value: &'static str,
+    pub label: &'static str,
+    pub selected: bool,
+}
+
+pub struct FacetOption {
+    pub value: String,
+    pub label: String,
+    pub count: usize,
+    pub checked: bool,
+}
+
+/// One group of checkboxes in the filter panel.
+pub struct FacetGroup {
+    /// The query parameter its checkboxes send.
+    pub name: &'static str,
+    pub label: &'static str,
+    pub options: Vec<FacetOption>,
+    pub open: bool,
+}
+
+/// An active filter, with the address that takes it off.
+pub struct Chip {
+    pub label: String,
+    pub href: String,
+}
+
+/// A column title in the list view; most sort the list.
+pub struct Header {
+    pub label: &'static str,
+    pub href: Option<String>,
+    pub arrow: &'static str,
+}
+
+/// Everything the browse page shows.
+pub struct BrowseView {
+    pub text: String,
+    pub list: bool,
+    pub summary: String,
+    pub sorts: Vec<Choice>,
+    pub groups: Vec<FacetGroup>,
+    pub hardness_min: String,
+    pub hardness_max: String,
+    pub density_min: String,
+    pub density_max: String,
+    pub with_image: bool,
+    pub image_count: usize,
+    pub active: Vec<Chip>,
+    pub clear: Option<String>,
+    pub cards_href: String,
+    pub list_href: String,
+    pub headers: Vec<Header>,
+    pub items: Vec<ItemView>,
+    pub previous: Option<String>,
+    pub next: Option<String>,
+    pub page_label: String,
+}
+
+fn bound(value: Option<f64>) -> String {
+    value.map(|v| v.to_string()).unwrap_or_default()
+}
+
+pub fn browse(total: usize, query: &Query, results: &Results, lang: Lang) -> BrowseView {
+    let text = lang.strings();
+    let facets = &results.facets;
+
+    let values = |counts: &[(String, usize)],
+                  chosen: &[String],
+                  label: &dyn Fn(&str) -> String|
+     -> Vec<FacetOption> {
+        counts
+            .iter()
+            .map(|(value, count)| FacetOption {
+                value: value.clone(),
+                label: label(value),
+                count: *count,
+                checked: chosen.contains(value),
+            })
+            .collect()
+    };
+    let classes =
+        |counts: &[usize], labels: &[&str], keys: Vec<&'static str>, chosen: Vec<bool>| {
+            keys.into_iter()
+                .zip(counts)
+                .zip(labels)
+                .zip(chosen)
+                .map(|(((key, count), label), checked)| FacetOption {
+                    value: key.to_owned(),
+                    label: (*label).to_owned(),
+                    count: *count,
+                    checked,
+                })
+                .collect::<Vec<_>>()
+        };
+    let group = |name, label, options: Vec<FacetOption>, always_open| FacetGroup {
+        name,
+        label,
+        open: always_open || options.iter().any(|option| option.checked),
+        options,
+    };
+    let groups = vec![
+        group(
+            "hardness",
+            text.facet_hardness,
+            classes(
+                &facets.hardness,
+                &text.hardness_classes,
+                Hardness::ALL.iter().map(|c| c.key()).collect(),
+                Hardness::ALL
+                    .iter()
+                    .map(|c| query.hardness.contains(c))
+                    .collect(),
+            ),
+            true,
+        ),
+        group(
+            "density",
+            text.facet_density,
+            classes(
+                &facets.density,
+                &text.density_classes,
+                Density::ALL.iter().map(|c| c.key()).collect(),
+                Density::ALL
+                    .iter()
+                    .map(|c| query.density.contains(c))
+                    .collect(),
+            ),
+            true,
+        ),
+        group(
+            "stability",
+            text.facet_stability,
+            classes(
+                &facets.stability,
+                &text.stability_classes,
+                Stability::ALL.iter().map(|c| c.key()).collect(),
+                Stability::ALL
+                    .iter()
+                    .map(|c| query.stability.contains(c))
+                    .collect(),
+            ),
+            true,
+        ),
+        group(
+            "color",
+            text.facet_color,
+            values(&facets.colors, &query.colors, &|c| text.color_name(c)),
+            true,
+        ),
+        group(
+            "region",
+            text.facet_region,
+            values(&facets.regions, &query.regions, &|r| r.to_owned()),
+            false,
+        ),
+        group(
+            "family",
+            text.facet_family,
+            values(&facets.families, &query.families, &|f| f.to_owned()),
+            false,
+        ),
+    ];
+
+    let chip = |label: String, href: String| Chip { label, href };
+    let mut active = Vec::new();
+    if !query.text.is_empty() {
+        active.push(chip(
+            text.search_chip(&query.text),
+            query.link(|q| q.text.clear()),
+        ));
+    }
+    for family in &query.families {
+        active.push(chip(
+            family.clone(),
+            query.link(|q| q.families.retain(|f| f != family)),
+        ));
+    }
+    for color in &query.colors {
+        active.push(chip(
+            text.color_name(color),
+            query.link(|q| q.colors.retain(|c| c != color)),
+        ));
+    }
+    for region in &query.regions {
+        active.push(chip(
+            region.clone(),
+            query.link(|q| q.regions.retain(|r| r != region)),
+        ));
+    }
+    for class in &query.hardness {
+        active.push(chip(
+            text.hardness_classes[class.index()].to_owned(),
+            query.link(|q| q.hardness.retain(|c| c != class)),
+        ));
+    }
+    for class in &query.density {
+        active.push(chip(
+            text.density_classes[class.index()].to_owned(),
+            query.link(|q| q.density.retain(|c| c != class)),
+        ));
+    }
+    for class in &query.stability {
+        active.push(chip(
+            text.stability_classes[class.index()].to_owned(),
+            query.link(|q| q.stability.retain(|c| c != class)),
+        ));
+    }
+    if query.hardness_min.is_some() || query.hardness_max.is_some() {
+        active.push(chip(
+            text.range_chip("Janka", query.hardness_min, query.hardness_max),
+            query.link(|q| (q.hardness_min, q.hardness_max) = (None, None)),
+        ));
+    }
+    if query.density_min.is_some() || query.density_max.is_some() {
+        active.push(chip(
+            text.range_chip(
+                text.density_range.split(" (").next().unwrap_or_default(),
+                query.density_min,
+                query.density_max,
+            ),
+            query.link(|q| (q.density_min, q.density_max) = (None, None)),
+        ));
+    }
+    if query.with_image {
+        active.push(chip(
+            text.only_with_photo.to_owned(),
+            query.link(|q| q.with_image = false),
+        ));
+    }
+
+    // Column titles that sort: each click moves on to the next order, or back to the first.
+    let column = |label: &'static str, orders: &[(Sort, &'static str)]| {
+        let at = orders.iter().position(|(sort, _)| *sort == query.sort());
+        let next = orders[at.map_or(0, |at| (at + 1) % orders.len())].0;
+
+        Header {
+            label,
+            href: Some(query.link(|q| q.sort = Some(next))),
+            arrow: at.map_or("", |at| orders[at].1),
+        }
+    };
+    let plain = |label| Header {
+        label,
+        href: None,
+        arrow: "",
+    };
+    let headers = vec![
+        column(text.col_name, &[(Sort::Name, "▲"), (Sort::NameDesc, "▼")]),
+        plain(text.col_scientific_name),
+        plain(text.col_family),
+        column(
+            text.col_hardness,
+            &[(Sort::Hardest, "▼"), (Sort::Softest, "▲")],
+        ),
+        column(
+            text.col_density,
+            &[(Sort::Heaviest, "▼"), (Sort::Lightest, "▲")],
+        ),
+        column(text.col_shrinkage, &[(Sort::Stablest, "▲")]),
+    ];
+
+    BrowseView {
+        text: query.text.clone(),
+        list: query.view() == View::List,
+        summary: text.results_found(results.found, total),
+        sorts: Sort::ALL
+            .iter()
+            .filter(|sort| **sort != Sort::Relevance || !query.text.is_empty())
+            .map(|sort| Choice {
+                value: sort.key(),
+                label: text.sort_labels[sort.index()],
+                selected: *sort == query.sort(),
+            })
+            .collect(),
+        groups,
+        hardness_min: bound(query.hardness_min),
+        hardness_max: bound(query.hardness_max),
+        density_min: bound(query.density_min),
+        density_max: bound(query.density_max),
+        with_image: query.with_image,
+        image_count: facets.with_image,
+        active,
+        clear: (!query.is_unfiltered()).then(|| {
+            query.link(|q| {
+                *q = Query {
+                    sort: q.sort,
+                    view: q.view,
+                    ..Query::parse(None)
+                }
+            })
+        }),
+        cards_href: query.link(|q| {
+            q.view = None;
+            q.page = results.page;
+        }),
+        list_href: query.link(|q| {
+            q.view = Some(View::List);
+            q.page = results.page;
+        }),
+        headers,
+        items: results
+            .shown
+            .iter()
+            .map(|entry| item(entry, query, lang))
+            .collect(),
+        previous: (results.page > 1).then(|| query.link(|q| q.page = results.page - 1)),
+        next: (results.page < results.pages).then(|| query.link(|q| q.page = results.page + 1)),
+        page_label: text.page_of(results.page, results.pages),
+    }
+}
+
+// ---- comparing ------------------------------------------------------------------------
+
+pub struct CompareColumn {
+    pub item: ItemView,
+    /// The comparison without this wood; only while more than the least are left.
+    pub remove: Option<String>,
+}
+
+pub struct CompareCell {
+    pub text: String,
+    /// The best figure of the row, when the woods differ.
+    pub best: bool,
+    /// The figure against the row's highest, for a bar.
+    pub percent: Option<u32>,
+}
+
+pub struct CompareRow {
+    pub label: &'static str,
+    pub cells: Vec<CompareCell>,
+}
+
+/// Which end of a row is the good one.
+#[derive(Clone, Copy)]
+enum Better {
+    Higher,
+    Lower,
+    Neither,
+}
+
+pub fn compare_href(ids: &[&str]) -> String {
+    let pairs: Vec<String> = ids.iter().map(|id| format!("id={id}")).collect();
+
+    format!("/compare?{}", pairs.join("&"))
+}
+
+pub fn comparison(
+    woods: &[WoodResponse],
+    removable: bool,
+    lang: Lang,
+) -> (Vec<CompareColumn>, Vec<CompareRow>) {
+    let text = lang.strings();
+    let entries: Vec<Entry> = woods.iter().map(Entry::new).collect();
+    let nothing = Query::parse(None);
+    let columns = entries
+        .iter()
+        .map(|entry| CompareColumn {
+            item: item(entry, &nothing, lang),
+            remove: removable.then(|| {
+                let kept: Vec<&str> = woods
+                    .iter()
+                    .map(|w| w.id.as_str())
+                    .filter(|id| *id != entry.wood.id)
+                    .collect();
+
+                compare_href(&kept)
+            }),
+        })
+        .collect();
+
+    let words = |label, value: &dyn Fn(&Entry) -> Option<String>| CompareRow {
+        label,
+        cells: entries
+            .iter()
+            .map(|entry| CompareCell {
+                text: value(entry).unwrap_or_else(|| MISSING.to_owned()),
+                best: false,
+                percent: None,
+            })
+            .collect(),
+    };
+    let figures = |label, value: &dyn Fn(&Entry) -> Option<f64>, decimals, unit, better: Better| {
+        let values: Vec<Option<f64>> = entries.iter().map(value).collect();
+        let present = || values.iter().flatten().copied();
+        let highest = present().fold(f64::MIN, f64::max);
+        let lowest = present().fold(f64::MAX, f64::min);
+        let target = match better {
+            Better::Higher => Some(highest),
+            Better::Lower => Some(lowest),
+            Better::Neither => None,
+        };
+
+        CompareRow {
+            label,
+            cells: values
+                .iter()
+                .map(|value| CompareCell {
+                    text: number(*value, decimals, unit, lang),
+                    // Only when the woods differ is one of them "the best".
+                    best: present().count() > 1
+                        && highest != lowest
+                        && value.is_some_and(|v| Some(v) == target),
+                    percent: value
+                        .filter(|_| highest > 0.0)
+                        .map(|v| percent(v / highest)),
+                })
+                .collect(),
+        }
+    };
+
+    let rows = vec![
+        words(text.fact_family, &|e| e.family.clone()),
+        words(text.fact_color, &|e| {
+            e.color.as_deref().map(|c| text.color_name(c))
+        }),
+        words(text.fact_region, &|e| {
+            e.wood.details.collection_location.clone()
+        }),
+        figures(
+            text.fact_hardness,
+            &|e| e.hardness,
+            0,
+            "kgf",
+            Better::Higher,
+        ),
+        figures(
+            text.fact_density,
+            &|e| e.density,
+            2,
+            "g/cm³",
+            Better::Neither,
+        ),
+        figures(text.fact_shrinkage, &|e| e.shrinkage, 1, "%", Better::Lower),
+        figures(
+            text.fact_bending,
+            &|e| e.bending,
+            0,
+            "kgf/cm²",
+            Better::Higher,
+        ),
+        figures(
+            text.fact_stiffness,
+            &|e| e.stiffness,
+            0,
+            "kgf/cm²",
+            Better::Higher,
+        ),
+    ];
+
+    (columns, rows)
 }
 
 pub struct ReasonView {
@@ -379,22 +896,6 @@ mod tests {
     }
 
     #[test]
-    fn a_table_row_picks_the_columns_a_list_shows() {
-        let mut w = wood("7", "Ipê");
-        w.details
-            .mechanical_properties
-            .dry
-            .janka_hardness
-            .parallel_to_grain = Some(1800.0);
-
-        let row = row(&w, Lang::En);
-
-        assert_eq!((row.id.as_str(), row.name.as_str()), ("7", "Ipê"));
-        assert_eq!(row.hardness, "1800 kgf");
-        assert_eq!((row.family.as_str(), row.density.as_str()), ("—", "—"));
-    }
-
-    #[test]
     fn the_detail_view_keeps_only_web_links() {
         let mut w = wood("1", "Cedro");
         w.details.common_names = vec!["Cedro-rosa".into(), "Cedro-vermelho".into()];
@@ -490,7 +991,6 @@ mod tests {
         assert_eq!(detail_note(&w), None, "no location, no note");
         w.details.collection_location = Some("Belém, PA".into());
         assert_eq!(detail_note(&w).as_deref(), Some("Coletada em Belém, PA."));
-        assert_eq!(row(&w, Lang::PtBr).compare_label, "Comparar Cedro");
     }
 
     fn detail_note(w: &WoodResponse) -> Option<String> {

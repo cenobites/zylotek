@@ -1,0 +1,114 @@
+/* The site's styles. `npm run build` turns this into static/app.css, which is committed so that
+   cargo alone runs the site. Templates and scripts are scanned for the classes they use. */
+@import "tailwindcss";
+@source "../templates";
+@source "../static";
+/* Tag classes are built from the kind of tag, so the scanner cannot see them. */
+@source inline("border-l-tag-{hardness,density,stability,color,region}");
+
+/* The palette, light and dark, as variables the theme colours point at. */
+:root {
+  --bg: #fbf8f3;
+  --fg: #2b2118;
+  --muted: #6f6254;
+  --line: #e3d9cb;
+  --card: #fff;
+  --accent: #8a4b1f;
+  --accent-fg: #fff;
+  --danger: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1712;
+    --fg: #f1e8dc;
+    --muted: #a99a88;
+    --line: #3a3128;
+    --card: #251f18;
+    --accent: #d08a4e;
+    --accent-fg: #1c1712;
+    --danger: #f2b8b5;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-card: var(--card);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+  --color-tag-hardness: #8a4b1f;
+  --color-tag-density: #6b7d3a;
+  --color-tag-stability: #3a6d7d;
+  --color-tag-color: #b08a4e;
+  --color-tag-region: #7d3a6b;
+}
+
+@theme {
+  --animate-step-in: step-in 0.4s ease-out forwards;
+  --animate-blink: blink 1s steps(2) infinite;
+  @keyframes step-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.25rem);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+}
+
+@layer base {
+  a {
+    color: var(--accent);
+  }
+  h1 {
+    @apply mt-4 mb-2 text-2xl font-bold;
+  }
+  h2 {
+    @apply mt-6 mb-2 text-xl font-semibold;
+  }
+}
+
+/* The few shapes used all over; everything else is utilities in the templates. */
+@layer components {
+  .card {
+    @apply my-3 rounded-xl border border-line bg-card p-4;
+  }
+  .btn {
+    @apply inline-block cursor-pointer rounded-lg border border-accent bg-accent px-4 py-2 text-accent-fg no-underline hover:opacity-90 aria-disabled:pointer-events-none aria-disabled:opacity-50;
+  }
+  .btn-quiet {
+    @apply border-line bg-card text-fg hover:border-accent hover:opacity-100;
+  }
+  .field {
+    @apply rounded-lg border border-line bg-card px-3 py-2 text-fg placeholder:text-muted;
+  }
+  .tag {
+    @apply my-0.5 mr-1 inline-block rounded border border-line border-l-[3px] bg-bg px-1.5 text-xs text-fg no-underline hover:border-accent focus-visible:border-accent;
+  }
+  .chip {
+    @apply my-0.5 mr-1 inline-block rounded-full border border-accent px-3 text-sm no-underline;
+  }
+  .link-btn {
+    @apply cursor-pointer border-0 bg-transparent p-0 text-sm text-accent underline;
+  }
+  .data-table {
+    @apply w-full border-collapse bg-card;
+    & th,
+    & td {
+      @apply border border-line px-2.5 py-1.5 text-left align-top;
+    }
+  }
+  .spinner {
+    @apply inline-block size-[1em] animate-spin rounded-full border-[0.15em] border-line border-t-accent align-[-0.15em] motion-reduce:animate-none;
+  }
+}

@@ -56,7 +56,7 @@ async fn the_catalogue_can_be_browsed_and_each_wood_opened() {
     let (missing, _) = get(&site, "/woods/00000000-0000-0000-0000-000000000000").await;
 
     assert_eq!(status, 200);
-    assert!(list.contains("Showing 1–3 of 3"));
+    assert!(list.contains("3 woods"));
     assert_eq!(ids.len(), 3);
     assert_eq!(wood_status, 200);
     assert!(wood.contains("Key figures") && wood.contains("Janka hardness"));

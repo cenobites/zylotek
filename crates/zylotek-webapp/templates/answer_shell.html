@@ -1,22 +1,19 @@
 <!doctype html>
 <html lang="{{ t.html_lang }}">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+{% include "head.html" %}
 <title>{{ t.answer_title }} · Zylotek</title>
-{% include "style.html" %}
-<script src="/static/history.js" defer></script>
 </head>
-<body>
+<body class="group/body bg-bg font-sans leading-relaxed text-fg [--page:84rem]">
 {% include "nav.html" %}
-<div class="layout">
+<div>
 {% include "sidebar.html" %}
-<main class="answer" data-question="{{ question }}">
+<main class="group/answer mx-auto w-full max-w-(--page) p-4" data-question="{{ question }}">
 <h1>{{ t.answer_heading }}</h1>
-<p class="question">“{{ question }}”</p>
-<div class="thinking card" role="status" aria-live="polite">
-<p class="thinking-title"><span class="spinner" aria-hidden="true"></span> {{ t.thinking }}</p>
-<ol>
-{% for step in t.thinking_steps %}<li style="--step:{{ loop.index0 }}">{{ step }}</li>
+<p class="question text-lg text-muted italic">“{{ question }}”</p>
+<div class="thinking card group-has-[.results]/answer:hidden" role="status" aria-live="polite">
+<p class="mb-2 font-semibold"><span class="spinner" aria-hidden="true"></span> {{ t.thinking }}</p>
+<ol class="m-0 list-decimal pl-6">
+{% for step in t.thinking_steps %}<li class="animate-step-in opacity-0 [animation-delay:calc(var(--step)*2.5s)] motion-reduce:animate-none motion-reduce:opacity-100" style="--step:{{ loop.index0 }}">{{ step }}</li>
 {% endfor %}</ol>
 </div>

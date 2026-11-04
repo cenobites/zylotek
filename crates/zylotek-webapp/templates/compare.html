@@ -2,11 +2,18 @@
 {% block title %}{{ t.compare_title }}{% endblock %}
 {% block content %}
 <h1>{{ t.compare_title }}</h1>
-<div class="scroll"><table>
-<thead><tr><th></th>{% for (id, name, scientific) in names %}<th><a href="/woods/{{ id }}">{{ name }}</a><br><em class="muted">{{ scientific }}</em></th>{% endfor %}</tr></thead>
+<p class="text-muted">{{ t.compare_best }}</p>
+<div class="overflow-x-auto"><table class="compare data-table">
+<thead><tr><th></th>{% for col in columns %}<th class="min-w-36">
+{% if let Some(image) = col.item.image %}<img class="mb-1 block h-18 w-24 rounded-md object-cover" src="{{ image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}
+<a href="/woods/{{ col.item.id }}">{{ col.item.name }}</a><br><em class="font-normal text-muted">{{ col.item.scientific_name }}</em>
+<p class="my-1 font-normal">{% for tag in col.item.tags %}<a class="tag border-l-tag-{{ tag.kind }}" data-tag="{{ tag.kind }}" href="{{ tag.href }}">{{ tag.label }}</a>{% endfor %}</p>
+{% if let Some(href) = col.remove %}<a class="text-sm font-normal" href="{{ href }}">✕ {{ t.compare_remove }}</a>{% endif %}
+</th>{% endfor %}</tr></thead>
 <tbody>
-{% for row in rows %}<tr><th>{{ row.label }}</th>{% for value in row.values %}<td>{{ value }}</td>{% endfor %}</tr>{% endfor %}
+{% for row in rows %}<tr><th>{{ row.label }}</th>{% for cell in row.cells %}<td{% if cell.best %} class="best bg-accent/15 font-bold"{% endif %}>{{ cell.text }}{% if let Some(percent) = cell.percent %}<div class="mt-1 h-1.5 min-w-20 overflow-hidden rounded bg-line"><i class="block h-full bg-accent" style="width:{{ percent }}%"></i></div>{% endif %}</td>{% endfor %}</tr>
+{% endfor %}
 </tbody></table></div>
-<p class="muted">{{ t.compare_hint }}</p>
-<p><a href="/woods">{{ t.all_woods }}</a></p>
+<p class="text-muted">{{ t.compare_hint }}</p>
+<p><a href="/woods">{{ t.compare_add }}</a></p>
 {% endblock %}

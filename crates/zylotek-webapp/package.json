@@ -1,0 +1,13 @@
+{
+  "name": "zylotek-webapp-styles",
+  "private": true,
+  "description": "Builds static/app.css from the templates with Tailwind CSS. The built file is committed, so cargo alone is enough to run the site.",
+  "scripts": {
+    "build": "tailwindcss -i assets/tailwind.css -o static/app.css --minify && node -e \"require('fs').appendFileSync('static/app.css', '\\n')\"",
+    "watch": "tailwindcss -i assets/tailwind.css -o static/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.1.11",
+    "tailwindcss": "4.1.11"
+  }
+}

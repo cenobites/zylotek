@@ -166,6 +166,42 @@ pub struct Strings {
     // Browsing.
     pub browse_title: &'static str,
     pub browse_heading: &'static str,
+    pub search_label: &'static str,
+    pub search_placeholder: &'static str,
+    pub search_button: &'static str,
+    pub filters_heading: &'static str,
+    pub filters_apply: &'static str,
+    pub filters_clear: &'static str,
+    pub facet_family: &'static str,
+    pub facet_color: &'static str,
+    pub facet_region: &'static str,
+    pub facet_hardness: &'static str,
+    pub facet_density: &'static str,
+    pub facet_stability: &'static str,
+    pub facet_figures: &'static str,
+    pub hardness_range: &'static str,
+    pub density_range: &'static str,
+    pub range_min: &'static str,
+    pub range_max: &'static str,
+    pub only_with_photo: &'static str,
+    /// In the order of `Hardness::ALL`, `Density::ALL`, `Stability::ALL` and `Sort::ALL`.
+    pub hardness_classes: [&'static str; 4],
+    pub density_classes: [&'static str; 3],
+    pub stability_classes: [&'static str; 3],
+    pub sort_label: &'static str,
+    pub sort_labels: [&'static str; 8],
+    pub view_label: &'static str,
+    pub view_cards: &'static str,
+    pub view_list: &'static str,
+    pub no_results: &'static str,
+    pub no_results_hint: &'static str,
+    pub no_photo: &'static str,
+    pub tray_compare: &'static str,
+    pub tray_clear: &'static str,
+    pub tray_hint: &'static str,
+    pub tray_full: &'static str,
+    pub col_shrinkage: &'static str,
+    pub details_link: &'static str,
     pub col_name: &'static str,
     pub col_scientific_name: &'static str,
     pub col_family: &'static str,
@@ -189,6 +225,11 @@ pub struct Strings {
     // Comparing.
     pub compare_title: &'static str,
     pub compare_hint: &'static str,
+    pub compare_best: &'static str,
+    pub compare_remove: &'static str,
+    pub compare_add: &'static str,
+    pub fact_color: &'static str,
+    pub fact_region: &'static str,
 
     // Errors.
     pub error_word: &'static str,
@@ -244,14 +285,60 @@ impl Strings {
         }
     }
 
-    pub fn showing(&self, first: usize, last: usize, total: u64) -> String {
+    pub fn results_found(&self, found: usize, total: usize) -> String {
+        match (self.lang, found == total) {
+            (Lang::En, true) => format!("{found} woods"),
+            (Lang::En, false) => format!("{found} of {total} woods"),
+            (Lang::PtBr, true) => format!("{found} madeiras"),
+            (Lang::PtBr, false) => format!("{found} de {total} madeiras"),
+        }
+    }
+
+    pub fn page_of(&self, page: usize, pages: usize) -> String {
         match self.lang {
-            Lang::En => format!(
-                "Showing {first}–{last} of {total}. Tick two to four woods to compare them."
-            ),
-            Lang::PtBr => format!(
-                "Mostrando {first}–{last} de {total}. Marque de duas a quatro madeiras para compará-las."
-            ),
+            Lang::En => format!("Page {page} of {pages}"),
+            Lang::PtBr => format!("Página {page} de {pages}"),
+        }
+    }
+
+    /// The name of a heartwood colour as the data gives it (Portuguese, lowercase).
+    pub fn color_name(&self, color: &str) -> String {
+        let english = match color {
+            "marrom" => Some("Brown"),
+            "amarela" | "amarelo" => Some("Yellow"),
+            "branca" | "branco" => Some("White"),
+            "cinza" => Some("Grey"),
+            "rosa" => Some("Pink"),
+            "vermelha" | "vermelho" => Some("Red"),
+            "oliva" => Some("Olive"),
+            "preta" | "preto" => Some("Black"),
+            "roxa" | "roxo" => Some("Purple"),
+            _ => None,
+        };
+        match (self.lang, english) {
+            (Lang::En, Some(name)) => name.to_owned(),
+            _ => {
+                let mut letters = color.chars();
+                letters
+                    .next()
+                    .map(|first| first.to_uppercase().chain(letters).collect())
+                    .unwrap_or_default()
+            }
+        }
+    }
+
+    pub fn search_chip(&self, text: &str) -> String {
+        format!("“{text}”")
+    }
+
+    /// "Janka ≥ 500", "Density ≤ 0.9" or "Janka 500–900", for a chip naming a range.
+    pub fn range_chip(&self, label: &str, min: Option<f64>, max: Option<f64>) -> String {
+        let number = |n: f64| self.lang.decimal(n.to_string());
+        match (min, max) {
+            (Some(min), Some(max)) => format!("{label}: {}–{}", number(min), number(max)),
+            (Some(min), None) => format!("{label} ≥ {}", number(min)),
+            (None, Some(max)) => format!("{label} ≤ {}", number(max)),
+            (None, None) => label.to_owned(),
         }
     }
 
@@ -381,6 +468,54 @@ pub static EN: Strings = Strings {
 
     browse_title: "Browse woods",
     browse_heading: "Brazilian woods",
+    search_label: "Search the catalogue",
+    search_placeholder: "Search by name, family, colour, place, use…",
+    search_button: "Search",
+    filters_heading: "Filters",
+    filters_apply: "Apply filters",
+    filters_clear: "Clear all",
+    facet_family: "Family",
+    facet_color: "Heartwood colour",
+    facet_region: "Collection state",
+    facet_hardness: "Hardness",
+    facet_density: "Weight",
+    facet_stability: "Stability",
+    facet_figures: "Figures",
+    hardness_range: "Janka hardness (kgf)",
+    density_range: "Density (g/cm³)",
+    range_min: "min",
+    range_max: "max",
+    only_with_photo: "Only woods with a photo",
+    hardness_classes: ["Soft", "Medium hardness", "Hard", "Very hard"],
+    density_classes: ["Light", "Medium weight", "Heavy"],
+    stability_classes: [
+        "Dimensionally stable",
+        "Moderately stable",
+        "Moves with humidity",
+    ],
+    sort_label: "Sort by",
+    sort_labels: [
+        "Best match",
+        "Name A–Z",
+        "Name Z–A",
+        "Hardest first",
+        "Softest first",
+        "Heaviest first",
+        "Lightest first",
+        "Most stable first",
+    ],
+    view_label: "View",
+    view_cards: "Cards",
+    view_list: "List",
+    no_results: "No wood matches this search.",
+    no_results_hint: "Try fewer words or remove a filter.",
+    no_photo: "No photo",
+    tray_compare: "Compare",
+    tray_clear: "Clear",
+    tray_hint: "Pick at least two woods to compare",
+    tray_full: "Four woods is the most you can compare",
+    col_shrinkage: "Shrinkage",
+    details_link: "Details",
     col_name: "Name",
     col_scientific_name: "Scientific name",
     col_family: "Family",
@@ -401,6 +536,11 @@ pub static EN: Strings = Strings {
     all_woods: "← All woods",
 
     compare_title: "Compare woods",
+    compare_best: "The best figure in each row is highlighted; the bars show each wood against the highest.",
+    compare_remove: "Remove",
+    compare_add: "Add another wood",
+    fact_color: "Heartwood colour",
+    fact_region: "Collected in",
     compare_hint: "Higher hardness, strength and stiffness resist more load. Lower shrinkage means a more stable board.",
 
     error_word: "Error",
@@ -492,6 +632,54 @@ pub static PT_BR: Strings = Strings {
 
     browse_title: "Ver madeiras",
     browse_heading: "Madeiras brasileiras",
+    search_label: "Pesquisar no catálogo",
+    search_placeholder: "Pesquise por nome, família, cor, local, uso…",
+    search_button: "Pesquisar",
+    filters_heading: "Filtros",
+    filters_apply: "Aplicar filtros",
+    filters_clear: "Limpar tudo",
+    facet_family: "Família",
+    facet_color: "Cor do cerne",
+    facet_region: "Estado da coleta",
+    facet_hardness: "Dureza",
+    facet_density: "Peso",
+    facet_stability: "Estabilidade",
+    facet_figures: "Valores",
+    hardness_range: "Dureza Janka (kgf)",
+    density_range: "Densidade (g/cm³)",
+    range_min: "mín.",
+    range_max: "máx.",
+    only_with_photo: "Somente madeiras com foto",
+    hardness_classes: ["Macia", "Dureza média", "Dura", "Muito dura"],
+    density_classes: ["Leve", "Peso médio", "Pesada"],
+    stability_classes: [
+        "Dimensionalmente estável",
+        "Moderadamente estável",
+        "Se move com a umidade",
+    ],
+    sort_label: "Ordenar por",
+    sort_labels: [
+        "Mais relevante",
+        "Nome A–Z",
+        "Nome Z–A",
+        "Mais duras primeiro",
+        "Mais macias primeiro",
+        "Mais pesadas primeiro",
+        "Mais leves primeiro",
+        "Mais estáveis primeiro",
+    ],
+    view_label: "Exibição",
+    view_cards: "Cartões",
+    view_list: "Lista",
+    no_results: "Nenhuma madeira corresponde a esta busca.",
+    no_results_hint: "Tente menos palavras ou remova um filtro.",
+    no_photo: "Sem foto",
+    tray_compare: "Comparar",
+    tray_clear: "Limpar",
+    tray_hint: "Escolha pelo menos duas madeiras para comparar",
+    tray_full: "Quatro madeiras é o máximo para comparar",
+    col_shrinkage: "Retração",
+    details_link: "Detalhes",
     col_name: "Nome",
     col_scientific_name: "Nome científico",
     col_family: "Família",
@@ -512,6 +700,11 @@ pub static PT_BR: Strings = Strings {
     all_woods: "← Todas as madeiras",
 
     compare_title: "Comparar madeiras",
+    compare_best: "O melhor valor de cada linha está em destaque; as barras mostram cada madeira em relação à maior.",
+    compare_remove: "Remover",
+    compare_add: "Adicionar outra madeira",
+    fact_color: "Cor do cerne",
+    fact_region: "Coletada em",
     compare_hint: "Maior dureza, resistência e rigidez suportam mais carga. Menor retração significa uma peça mais estável.",
 
     error_word: "Erro",
@@ -649,8 +842,38 @@ mod tests {
 
         assert_eq!(en.better_than(85), "better than 85% of woods");
         assert_eq!(pt.better_than(85), "melhor que 85% das madeiras");
-        assert!(en.showing(1, 24, 225).contains("1–24 of 225"));
-        assert!(pt.showing(1, 24, 225).contains("1–24 de 225"));
+        assert_eq!(en.results_found(225, 225), "225 woods");
+        assert_eq!(en.results_found(3, 225), "3 of 225 woods");
+        assert_eq!(pt.results_found(225, 225), "225 madeiras");
+        assert_eq!(pt.results_found(3, 225), "3 de 225 madeiras");
+        assert_eq!(en.page_of(2, 9), "Page 2 of 9");
+        assert_eq!(pt.page_of(2, 9), "Página 2 de 9");
+        assert_eq!(en.search_chip("ipê"), "“ipê”");
+        assert_eq!(
+            en.range_chip("Janka", Some(500.0), Some(900.0)),
+            "Janka: 500–900"
+        );
+        assert_eq!(pt.range_chip("Janka", Some(0.5), None), "Janka ≥ 0,5");
+        assert_eq!(en.range_chip("Janka", None, Some(900.0)), "Janka ≤ 900");
+        assert_eq!(en.range_chip("Janka", None, None), "Janka");
+        assert_eq!(en.color_name("marrom"), "Brown");
+        assert_eq!(pt.color_name("marrom"), "Marrom");
+        assert_eq!(
+            en.color_name("azulada"),
+            "Azulada",
+            "unknown colours are shown as given"
+        );
+        assert_eq!(en.color_name(""), "");
+        for color in [
+            "amarela", "amarelo", "branca", "branco", "cinza", "rosa", "vermelha", "vermelho",
+            "oliva", "preta", "preto", "roxa", "roxo",
+        ] {
+            assert_ne!(
+                en.color_name(color).to_lowercase(),
+                color,
+                "{color} is translated"
+            );
+        }
         assert_eq!(
             pt.select_at_least(2),
             "Selecione pelo menos 2 madeiras para comparar."

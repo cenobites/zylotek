@@ -1,6 +1,9 @@
 //! The two services the web app depends on, over HTTP, using the shared contract types.
 
-use std::time::Duration;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use reqwest::RequestBuilder;
 use serde::de::DeserializeOwned;
@@ -17,6 +20,12 @@ const ASSISTANT: &str = "the assistant";
 /// The assistant calls a model twice; give it room.
 const ASSISTANT_TIMEOUT: Duration = Duration::from_secs(240);
 const API_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the whole catalogue is reused before it is fetched again.
+const CATALOGUE_TTL: Duration = Duration::from_secs(60);
+/// The API's largest page.
+const CATALOGUE_PAGE: usize = 100;
+/// A guard against an API that never stops saying there is more.
+const CATALOGUE_MAX_PAGES: usize = 100;
 
 fn client(timeout: Duration) -> reqwest::Client {
     reqwest::Client::builder()
@@ -80,6 +89,7 @@ async fn call<T: DeserializeOwned>(
 pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
+    catalogue: tokio::sync::Mutex<Option<(Instant, Arc<Vec<WoodResponse>>)>>,
 }
 
 impl ApiClient {
@@ -87,7 +97,35 @@ impl ApiClient {
         Self {
             client: client(API_TIMEOUT),
             base_url: base_url.trim_end_matches('/').to_owned(),
+            catalogue: tokio::sync::Mutex::new(None),
         }
+    }
+
+    /// Every wood, for searching and filtering in memory. Fetched page by page, then reused for
+    /// a minute so that browsing does not ask the API on every click. A failed fetch is not
+    /// cached.
+    pub async fn all(&self) -> Result<Arc<Vec<WoodResponse>>, BackendError> {
+        let mut cached = self.catalogue.lock().await;
+        if let Some((_, woods)) = cached
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() < CATALOGUE_TTL)
+        {
+            return Ok(woods.clone());
+        }
+
+        let mut woods = Vec::new();
+        for _ in 0..CATALOGUE_MAX_PAGES {
+            let page = self.list(woods.len(), CATALOGUE_PAGE).await?;
+            let empty = page.items.is_empty();
+            woods.extend(page.items);
+            if empty || woods.len() as u64 >= page.total {
+                break;
+            }
+        }
+        let woods = Arc::new(woods);
+        *cached = Some((Instant::now(), woods.clone()));
+
+        Ok(woods)
     }
 
     pub async fn list(
@@ -322,6 +360,74 @@ mod tests {
 
         assert_eq!((page.total, page.items.len()), (21, 1));
         assert_eq!(one.name, "Cedro");
+    }
+
+    #[tokio::test]
+    async fn the_whole_catalogue_is_fetched_page_by_page_and_reused() {
+        let server = MockServer::start().await;
+        for (offset, ids) in [("0", vec!["a", "b"]), ("2", vec!["c"])] {
+            Mock::given(path("/api/v1/woods"))
+                .and(query_param("offset", offset))
+                .and(query_param("limit", "100"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "items": ids.iter().map(|id| wood(id)).collect::<Vec<_>>(),
+                    "total": 3, "offset": 0, "limit": 100,
+                })))
+                .mount(&server)
+                .await;
+        }
+        let api = ApiClient::new(&server.uri());
+
+        let first = api.all().await.unwrap();
+        let again = api.all().await.unwrap();
+
+        assert_eq!(
+            first.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(),
+            ["a", "b", "c"]
+        );
+        assert!(
+            Arc::ptr_eq(&first, &again),
+            "the second look reuses the first"
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn the_catalogue_stops_at_an_empty_page_and_a_failure_is_not_remembered() {
+        let server = MockServer::start().await;
+        Mock::given(path("/api/v1/woods"))
+            .respond_with(
+                ResponseTemplate::new(500)
+                    .set_body_json(json!({"code": "INTERNAL", "message": "down"})),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(path("/api/v1/woods"))
+            .and(query_param("offset", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                json!({"items": [wood("a")], "total": 5, "offset": 0, "limit": 100}),
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(path("/api/v1/woods"))
+            .and(query_param("offset", "1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"items": [], "total": 5, "offset": 1, "limit": 100})),
+            )
+            .mount(&server)
+            .await;
+        let api = ApiClient::new(&server.uri());
+
+        let failed = api.all().await;
+        let woods = api.all().await.unwrap();
+
+        assert!(matches!(
+            failed,
+            Err(BackendError::Status { status: 500, .. })
+        ));
+        assert_eq!(woods.len(), 1, "a short catalogue does not loop forever");
     }
 
     #[tokio::test]

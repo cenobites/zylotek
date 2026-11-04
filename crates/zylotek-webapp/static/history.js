@@ -72,7 +72,8 @@
     for (const item of items) {
       const remove = element("button", {
         type: "button",
-        className: "remove",
+        className:
+          "cursor-pointer border-0 bg-transparent px-2 py-0.5 text-muted opacity-0 group-hover/item:opacity-100 focus-visible:opacity-100 group-[.active]/item:opacity-100",
         textContent: "×",
         title: list.dataset.remove,
       });
@@ -82,12 +83,23 @@
         render();
       });
       const link = element("a", {
+        className: "min-w-0 flex-1 truncate px-2 py-1.5 text-fg no-underline",
         href: `/?h=${encodeURIComponent(item.id)}`,
         textContent: item.question,
         title: `${item.question}\n${when(item.at)}`,
       });
       if (item.id === current) link.setAttribute("aria-current", "page");
-      list.append(element("li", { className: item.id === current ? "active" : "" }, link, remove));
+      list.append(
+        element(
+          "li",
+          {
+            className:
+              "group/item flex items-center rounded-lg hover:bg-line" + (item.id === current ? " active bg-line" : ""),
+          },
+          link,
+          remove,
+        ),
+      );
     }
     empty.hidden = items.length > 0;
     clear.hidden = items.length === 0;
@@ -106,12 +118,14 @@
     // On a phone the sidebar slides in over the page.
     const toggle = document.querySelector("[data-sidebar-toggle]");
     const open = (yes) => {
-      document.body.classList.toggle("sidebar-open", yes);
+      // The stylesheet slides the sidebar in when the body says it is open.
+      if (yes) document.body.dataset.sidebar = "open";
+      else delete document.body.dataset.sidebar;
       if (toggle) toggle.setAttribute("aria-expanded", String(yes));
     };
     if (toggle) {
       toggle.hidden = false;
-      toggle.addEventListener("click", () => open(!document.body.classList.contains("sidebar-open")));
+      toggle.addEventListener("click", () => open(document.body.dataset.sidebar !== "open"));
     }
     document.querySelector("[data-sidebar-close]")?.addEventListener("click", () => open(false));
     document.addEventListener("keydown", (event) => {
