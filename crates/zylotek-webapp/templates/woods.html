@@ -1,96 +1,104 @@
 {% extends "base.html" %}
 {% block title %}{{ t.browse_title }}{% endblock %}
 {% block content %}
+<div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
 <h1>{{ t.browse_heading }}</h1>
+<p class="mb-2 text-sm text-muted">{{ v.summary }}</p>
+</div>
 <form id="compare-form" method="get" action="/compare"></form>
-<form id="filters" class="browse grid grid-cols-1 items-start gap-5 md:grid-cols-[15rem_minmax(0,1fr)]" method="get" action="/woods">
+<form id="filters" class="browse mt-4 grid grid-cols-1 items-start gap-8 md:grid-cols-[15rem_minmax(0,1fr)]" method="get" action="/woods">
 {% if v.list %}<input type="hidden" name="view" value="list">{% endif %}
-<aside aria-label="{{ t.filters_heading }}">
-<h2 class="mt-0">{{ t.filters_heading }}</h2>
+<aside class="[scrollbar-width:thin] md:sticky md:top-20 md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-2" aria-label="{{ t.filters_heading }}">
+<details class="group/filters" open data-filters>
+<summary class="flex cursor-pointer list-none items-center gap-2 rounded-xl border border-line bg-card px-4 py-2.5 md:pointer-events-none md:border-0 md:bg-transparent md:p-0 [&::-webkit-details-marker]:hidden"><svg class="icon text-accent"><use href="#i-sliders"/></svg><span class="eyebrow flex-1 text-fg">{{ t.filters_heading }}</span>{% if !v.active.is_empty() %}<span class="rounded-full bg-accent px-2 text-xs font-semibold text-accent-fg">{{ v.active.len() }}</span>{% endif %}<svg class="icon size-4 text-muted transition group-open/filters:rotate-90 md:hidden"><use href="#i-chevron"/></svg></summary>
+<div class="mt-2">
 {% for group in v.groups %}
-<details class="border-b border-line py-1.5"{% if group.open %} open{% endif %}>
-<summary class="cursor-pointer font-semibold">{{ group.label }}</summary>
-<div class="max-h-56 overflow-y-auto py-1">
-{% for option in group.options %}<label class="flex items-baseline gap-1.5 py-0.5"><input type="checkbox" name="{{ group.name }}" value="{{ option.value }}"{% if option.checked %} checked{% endif %}> <span class="flex-1">{{ option.label }}</span> <em class="text-sm text-muted not-italic">{{ option.count }}</em></label>
+<details class="group border-b border-line py-2"{% if group.open %} open{% endif %}>
+<summary class="flex cursor-pointer list-none items-center gap-2 py-1 text-sm font-semibold [&::-webkit-details-marker]:hidden"><svg class="icon text-muted">{% if group.name == "hardness" %}<use href="#i-hammer"/>{% else if group.name == "density" %}<use href="#i-weight"/>{% else if group.name == "stability" %}<use href="#i-droplet"/>{% else if group.name == "color" %}<use href="#i-palette"/>{% else if group.name == "region" %}<use href="#i-pin"/>{% else %}<use href="#i-tree"/>{% endif %}</svg><span class="flex-1">{{ group.label }}</span><svg class="icon size-4 text-muted transition group-open:rotate-90 motion-reduce:transition-none"><use href="#i-chevron"/></svg></summary>
+<div class="max-h-56 overflow-y-auto py-1 text-sm [scrollbar-width:thin]">
+{% for option in group.options %}<label class="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-subtle"><input type="checkbox" name="{{ group.name }}" value="{{ option.value }}"{% if option.checked %} checked{% endif %}> <span class="flex-1">{{ option.label }}</span> <em class="text-xs text-muted tabular-nums not-italic">{{ option.count }}</em></label>
 {% endfor %}</div>
 </details>
 {% endfor %}
-<details class="border-b border-line py-1.5" open>
-<summary class="cursor-pointer font-semibold">{{ t.facet_figures }}</summary>
-<div class="max-h-56 overflow-y-auto py-1">
-<fieldset class="my-2 border-0 p-0"><legend class="p-0 text-sm text-muted">{{ t.hardness_range }}</legend>
-<input class="field w-[48%] px-2 py-1" type="number" name="hardness_min" min="0" step="any" value="{{ v.hardness_min }}" placeholder="{{ t.range_min }}" aria-label="{{ t.hardness_range }} {{ t.range_min }}">
-<input class="field w-[48%] px-2 py-1" type="number" name="hardness_max" min="0" step="any" value="{{ v.hardness_max }}" placeholder="{{ t.range_max }}" aria-label="{{ t.hardness_range }} {{ t.range_max }}"></fieldset>
-<fieldset class="my-2 border-0 p-0"><legend class="p-0 text-sm text-muted">{{ t.density_range }}</legend>
-<input class="field w-[48%] px-2 py-1" type="number" name="density_min" min="0" step="any" value="{{ v.density_min }}" placeholder="{{ t.range_min }}" aria-label="{{ t.density_range }} {{ t.range_min }}">
-<input class="field w-[48%] px-2 py-1" type="number" name="density_max" min="0" step="any" value="{{ v.density_max }}" placeholder="{{ t.range_max }}" aria-label="{{ t.density_range }} {{ t.range_max }}"></fieldset>
-<label class="flex items-baseline gap-1.5 py-0.5"><input type="checkbox" name="image" value="1"{% if v.with_image %} checked{% endif %}> <span class="flex-1">{{ t.only_with_photo }}</span> <em class="text-sm text-muted not-italic">{{ v.image_count }}</em></label>
+<details class="group border-b border-line py-2" open>
+<summary class="flex cursor-pointer list-none items-center gap-2 py-1 text-sm font-semibold [&::-webkit-details-marker]:hidden"><svg class="icon text-muted"><use href="#i-sliders"/></svg><span class="flex-1">{{ t.facet_figures }}</span><svg class="icon size-4 text-muted transition group-open:rotate-90 motion-reduce:transition-none"><use href="#i-chevron"/></svg></summary>
+<div class="py-1 text-sm">
+<fieldset class="my-2 border-0 p-0"><legend class="mb-1 p-0 text-xs text-muted">{{ t.hardness_range }}</legend>
+<div class="flex gap-2"><input class="field w-1/2 px-2.5 py-1.5" type="number" name="hardness_min" min="0" step="any" value="{{ v.hardness_min }}" placeholder="{{ t.range_min }}" aria-label="{{ t.hardness_range }} {{ t.range_min }}">
+<input class="field w-1/2 px-2.5 py-1.5" type="number" name="hardness_max" min="0" step="any" value="{{ v.hardness_max }}" placeholder="{{ t.range_max }}" aria-label="{{ t.hardness_range }} {{ t.range_max }}"></div></fieldset>
+<fieldset class="my-2 border-0 p-0"><legend class="mb-1 p-0 text-xs text-muted">{{ t.density_range }}</legend>
+<div class="flex gap-2"><input class="field w-1/2 px-2.5 py-1.5" type="number" name="density_min" min="0" step="any" value="{{ v.density_min }}" placeholder="{{ t.range_min }}" aria-label="{{ t.density_range }} {{ t.range_min }}">
+<input class="field w-1/2 px-2.5 py-1.5" type="number" name="density_max" min="0" step="any" value="{{ v.density_max }}" placeholder="{{ t.range_max }}" aria-label="{{ t.density_range }} {{ t.range_max }}"></div></fieldset>
+<label class="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-subtle"><input type="checkbox" name="image" value="1"{% if v.with_image %} checked{% endif %}> <span class="flex-1">{{ t.only_with_photo }}</span> <em class="text-xs text-muted tabular-nums not-italic">{{ v.image_count }}</em></label>
 </div>
 </details>
-<p class="mt-3"><button class="btn" type="submit">{{ t.filters_apply }}</button>
-{% if let Some(href) = v.clear %} <a href="{{ href }}">{{ t.filters_clear }}</a>{% endif %}</p>
+<p class="mt-4 flex items-center gap-3"><button class="btn px-4 py-1.5 text-sm" type="submit">{{ t.filters_apply }}</button>
+{% if let Some(href) = v.clear %} <a class="text-sm" href="{{ href }}">{{ t.filters_clear }}</a>{% endif %}</p>
+</div>
+</details>
 </aside>
 <section class="min-w-0">
-<div class="mb-2 flex flex-wrap items-center gap-2">
-<input class="field min-w-48 flex-1" type="search" name="q" value="{{ v.text }}" maxlength="200" placeholder="{{ t.search_placeholder }}" aria-label="{{ t.search_label }}">
+<div class="flex flex-wrap items-center gap-2">
+<label class="relative min-w-56 flex-1"><svg class="icon pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-muted"><use href="#i-search"/></svg>
+<input class="field w-full rounded-full py-2.5 pr-4 pl-11" type="search" name="q" value="{{ v.text }}" maxlength="200" placeholder="{{ t.search_placeholder }}" aria-label="{{ t.search_label }}"></label>
 <button class="btn" type="submit">{{ t.search_button }}</button>
 </div>
-<div class="mb-2 flex flex-wrap items-center gap-2">
-<label>{{ t.sort_label }}
-<select class="field px-2 py-1" name="sort">{% for sort in v.sorts %}<option value="{{ sort.value }}"{% if sort.selected %} selected{% endif %}>{{ sort.label }}</option>{% endfor %}</select></label>
-<span class="ml-auto inline-flex overflow-hidden rounded-lg border border-line" role="group" aria-label="{{ t.view_label }}">
-<a class="px-3 py-1 text-fg no-underline aria-[current]:bg-accent aria-[current]:text-accent-fg" href="{{ v.cards_href }}"{% if !v.list %} aria-current="true"{% endif %}>{{ t.view_cards }}</a>
-<a class="px-3 py-1 text-fg no-underline aria-[current]:bg-accent aria-[current]:text-accent-fg" href="{{ v.list_href }}"{% if v.list %} aria-current="true"{% endif %}>{{ t.view_list }}</a>
+<div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
+<label class="inline-flex items-center gap-2 text-muted">{{ t.sort_label }}
+<select class="field cursor-pointer rounded-full py-1.5 pr-8 pl-3 text-sm" name="sort">{% for sort in v.sorts %}<option value="{{ sort.value }}"{% if sort.selected %} selected{% endif %}>{{ sort.label }}</option>{% endfor %}</select></label>
+<span class="ml-auto inline-flex gap-0.5 rounded-full border border-line bg-card p-0.5" role="group" aria-label="{{ t.view_label }}">
+<a data-view="cards" class="view-toggle" href="{{ v.cards_href }}"{% if !v.list %} aria-current="true"{% endif %}>{{ t.view_cards }}</a>
+<a data-view="list" class="view-toggle" href="{{ v.list_href }}"{% if v.list %} aria-current="true"{% endif %}>{{ t.view_list }}</a>
 </span>
 </div>
 {% if !v.active.is_empty() %}
-<p class="my-2">{% for chip in v.active %}<a class="chip" href="{{ chip.href }}" title="{{ t.filters_clear }}">{{ chip.label }} ✕</a>{% endfor %}</p>
+<p class="mt-3 mb-0 flex flex-wrap items-center gap-1">{% for chip in v.active %}<a class="chip" href="{{ chip.href }}" title="{{ t.filters_clear }}">{{ chip.label }} ✕</a>{% endfor %}</p>
 {% endif %}
-<p class="text-muted">{{ v.summary }}</p>
 {% if v.items.is_empty() %}
-<div class="card"><p><strong>{{ t.no_results }}</strong></p><p class="text-muted">{{ t.no_results_hint }}</p>
-{% if let Some(href) = v.clear %}<p><a href="{{ href }}">{{ t.filters_clear }}</a></p>{% endif %}</div>
+<div class="mt-6 flex flex-col items-center rounded-3xl border border-dashed border-line px-6 py-16 text-center">
+<span class="grid size-14 place-items-center rounded-2xl bg-subtle text-muted"><svg class="icon size-7"><use href="#i-search"/></svg></span>
+<p class="mt-4 mb-1 font-serif text-lg font-semibold">{{ t.no_results }}</p><p class="m-0 max-w-md text-sm text-muted">{{ t.no_results_hint }}</p>
+{% if let Some(href) = v.clear %}<p class="mt-4"><a class="btn btn-quiet text-sm" href="{{ href }}">{{ t.filters_clear }}</a></p>{% endif %}</div>
 {% else %}
 {% if v.list %}
-<div class="overflow-x-auto"><table class="woods-list data-table">
-<thead><tr><th></th>{% for header in v.headers %}<th>{% if let Some(href) = header.href %}<a class="text-inherit no-underline" href="{{ href }}">{{ header.label }}{% if !header.arrow.is_empty() %} {{ header.arrow }}{% endif %}</a>{% else %}{{ header.label }}{% endif %}</th>{% endfor %}<th>{{ t.facet_color }}</th></tr></thead>
+<div class="mt-5 overflow-x-auto"><table class="woods-list data-table">
+<thead><tr><th class="w-8"></th>{% for header in v.headers %}<th class="whitespace-nowrap">{% if let Some(href) = header.href %}<a class="text-inherit no-underline hover:text-accent" href="{{ href }}">{{ header.label }}{% if !header.arrow.is_empty() %} {{ header.arrow }}{% endif %}</a>{% else %}{{ header.label }}{% endif %}</th>{% endfor %}<th>{{ t.facet_color }}</th></tr></thead>
 <tbody>
 {% for it in v.items %}
-<tr><td><input type="checkbox" form="compare-form" name="id" value="{{ it.id }}" data-compare data-name="{{ it.name }}" aria-label="{{ it.compare_label }}"></td>
-<td><a href="/woods/{{ it.id }}">{{ it.name }}</a></td><td><em>{{ it.scientific_name }}</em></td><td>{{ it.family }}</td><td>{{ it.hardness }}</td><td>{{ it.density }}</td><td>{{ it.shrinkage }}</td>
-<td class="min-w-48">{% for tag in it.tags %}<a class="tag border-l-tag-{{ tag.kind }}" data-tag="{{ tag.kind }}" href="{{ tag.href }}">{{ tag.label }}</a>{% endfor %}</td></tr>
+<tr class="align-middle transition hover:bg-subtle/60 [&>td]:align-middle"><td><input type="checkbox" form="compare-form" name="id" value="{{ it.id }}" data-compare data-name="{{ it.name }}" aria-label="{{ it.compare_label }}"></td>
+<td><a class="inline-flex items-center gap-2.5 font-medium whitespace-nowrap text-fg no-underline hover:text-accent" href="/woods/{{ it.id }}">{% if let Some(image) = it.image %}<img class="size-8 rounded-lg object-cover" src="{{ image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="grain size-8 shrink-0 rounded-lg" style="{{ it.grain }}"></span>{% endif %}{{ it.name }}</a></td><td class="min-w-40"><em class="text-muted">{{ it.scientific_name }}</em></td><td>{{ it.family }}</td><td class="whitespace-nowrap tabular-nums">{{ it.hardness }}</td><td class="whitespace-nowrap tabular-nums">{{ it.density }}</td><td class="whitespace-nowrap tabular-nums">{{ it.shrinkage }}</td>
+<td class="whitespace-nowrap">{% for tag in it.tags %}{% if tag.kind == "color" || tag.kind == "region" %}<a class="tag border-l-tag-{{ tag.kind }}" data-tag="{{ tag.kind }}" href="{{ tag.href }}">{{ tag.label }}</a>{% endif %}{% endfor %}</td></tr>
 {% endfor %}
 </tbody></table></div>
 {% else %}
-<div class="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3.5">
+<div class="mt-5 grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-5">
 {% for it in v.items %}
-<article class="wood-tile card m-0 flex flex-col overflow-hidden p-0" data-card>
-<a class="block aspect-4/3 bg-line" href="/woods/{{ it.id }}" tabindex="-1" aria-hidden="true">{% if let Some(image) = it.image %}<img class="block size-full object-cover" src="{{ image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="flex h-full items-center justify-center text-sm text-muted">{{ t.no_photo }}</span>{% endif %}</a>
-<div class="flex flex-1 flex-col gap-1 px-4 py-3">
-<h3 class="m-0 text-lg font-semibold"><a href="/woods/{{ it.id }}">{{ it.name }}</a></h3>
-<em class="text-muted">{{ it.scientific_name }}</em>
-{% if !it.common_names.is_empty() %}<p class="m-0 text-sm text-muted">{{ it.common_names }}</p>{% endif %}
-<p class="my-1">{% for tag in it.tags %}<a class="tag border-l-tag-{{ tag.kind }}" data-tag="{{ tag.kind }}" href="{{ tag.href }}">{{ tag.label }}</a>{% endfor %}</p>
-<dl class="my-1 flex flex-wrap gap-4">
-<div class="flex flex-col"><dt class="text-xs text-muted">{{ t.col_hardness }}</dt><dd class="m-0 text-sm font-semibold">{{ it.hardness }}</dd></div>
-<div class="flex flex-col"><dt class="text-xs text-muted">{{ t.col_density }}</dt><dd class="m-0 text-sm font-semibold">{{ it.density }}</dd></div>
-<div class="flex flex-col"><dt class="text-xs text-muted">{{ t.col_shrinkage }}</dt><dd class="m-0 text-sm font-semibold">{{ it.shrinkage }}</dd></div>
+<article class="wood-tile lift group relative flex flex-col overflow-hidden rounded-2xl border border-line bg-card" data-card>
+<div class="relative aspect-[4/3] overflow-hidden">{% if let Some(image) = it.image %}<img class="block size-full object-cover transition duration-500 group-hover:scale-105 motion-reduce:transition-none" src="{{ image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="grain block size-full transition duration-500 group-hover:scale-105 motion-reduce:transition-none" style="{{ it.grain }}"><span class="sr-only">{{ t.no_photo }}</span></span>{% endif %}</div>
+<label class="absolute top-3 right-3 z-2 inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-card/90 px-2.5 py-1 text-xs font-medium text-fg shadow-sm backdrop-blur transition has-checked:bg-accent has-checked:text-accent-fg"><input type="checkbox" form="compare-form" name="id" value="{{ it.id }}" data-compare data-name="{{ it.name }}" aria-label="{{ it.compare_label }}"> {{ t.tray_compare }}</label>
+<div class="flex flex-1 flex-col gap-1 px-4 pt-3.5 pb-4">
+<h3 class="m-0 font-serif text-lg leading-snug font-semibold"><a class="text-fg no-underline after:absolute after:inset-0 after:z-1 after:content-[''] hover:text-accent" href="/woods/{{ it.id }}">{{ it.name }}</a></h3>
+<em class="text-sm text-muted">{{ it.scientific_name }}</em>
+{% if !it.common_names.is_empty() %}<p class="m-0 line-clamp-1 text-xs text-muted">{{ it.common_names }}</p>{% endif %}
+<dl class="my-2 grid grid-cols-3 gap-2 rounded-xl bg-subtle/70 px-3 py-2">
+<div class="flex min-w-0 flex-col"><dt class="flex items-center gap-1 truncate text-[0.7rem] text-muted"><svg class="icon size-3.5"><use href="#i-hammer"/></svg>{{ t.col_hardness }}</dt><dd class="m-0 text-[0.8rem] font-semibold whitespace-nowrap tabular-nums">{{ it.hardness }}</dd></div>
+<div class="flex min-w-0 flex-col"><dt class="flex items-center gap-1 truncate text-[0.7rem] text-muted"><svg class="icon size-3.5"><use href="#i-weight"/></svg>{{ t.col_density }}</dt><dd class="m-0 text-[0.8rem] font-semibold whitespace-nowrap tabular-nums">{{ it.density }}</dd></div>
+<div class="flex min-w-0 flex-col"><dt class="flex items-center gap-1 truncate text-[0.7rem] text-muted"><svg class="icon size-3.5"><use href="#i-droplet"/></svg>{{ t.col_shrinkage }}</dt><dd class="m-0 text-[0.8rem] font-semibold whitespace-nowrap tabular-nums">{{ it.shrinkage }}</dd></div>
 </dl>
-<p class="mt-auto flex items-center justify-between pt-2"><label class="cursor-pointer"><input type="checkbox" form="compare-form" name="id" value="{{ it.id }}" data-compare data-name="{{ it.name }}" aria-label="{{ it.compare_label }}"> {{ t.tray_compare }}</label>
-<a href="/woods/{{ it.id }}">{{ t.details_link }} →</a></p>
+<p class="relative z-2 mt-auto mb-0">{% for tag in it.tags %}<a class="tag border-l-tag-{{ tag.kind }}" data-tag="{{ tag.kind }}" href="{{ tag.href }}">{{ tag.label }}</a>{% endfor %}</p>
 </div>
 </article>
 {% endfor %}
 </div>
 {% endif %}
-<p class="mt-4" data-no-js><button class="btn" type="submit" form="compare-form">{{ t.compare_submit }}</button></p>
-<div class="my-4 flex items-center justify-between">
-<span>{% if let Some(href) = v.previous %}<a href="{{ href }}">{{ t.previous }}</a>{% endif %}</span>
-<span class="text-muted">{{ v.page_label }}</span>
-<span>{% if let Some(href) = v.next %}<a href="{{ href }}">{{ t.next }}</a>{% endif %}</span>
-</div>
+<p class="mt-5" data-no-js><button class="btn" type="submit" form="compare-form"><svg class="icon"><use href="#i-columns"/></svg>{{ t.compare_submit }}</button></p>
+<nav class="mt-8 flex items-center justify-between gap-3 text-sm" aria-label="{{ v.page_label }}">
+<span class="min-w-28">{% if let Some(href) = v.previous %}<a class="btn btn-quiet py-1.5 text-sm" href="{{ href }}">{{ t.previous }}</a>{% endif %}</span>
+<span class="rounded-full bg-subtle px-3 py-1 text-muted">{{ v.page_label }}</span>
+<span class="min-w-28 text-right">{% if let Some(href) = v.next %}<a class="btn btn-quiet py-1.5 text-sm" href="{{ href }}">{{ t.next }}</a>{% endif %}</span>
+</nav>
 {% endif %}
 </section>
 </form>
-<div class="tray fixed inset-x-0 bottom-0 z-15 flex flex-wrap items-center gap-3 border-t border-line bg-card px-4 py-2.5 shadow-[0_-2px_8px_rgb(0_0_0/0.12)]" data-compare-tray data-hint="{{ t.tray_hint }}" data-full="{{ t.tray_full }}" data-compare="{{ t.tray_compare }}" data-clear="{{ t.tray_clear }}" hidden></div>
+<div class="tray fixed inset-x-3 bottom-4 z-15 mx-auto flex max-w-3xl flex-wrap items-center gap-3 rounded-2xl border border-line bg-card/95 px-4 py-3 shadow-[0_18px_50px_-15px_rgb(0_0_0/0.35)] backdrop-blur" data-compare-tray data-hint="{{ t.tray_hint }}" data-full="{{ t.tray_full }}" data-compare="{{ t.tray_compare }}" data-clear="{{ t.tray_clear }}" hidden></div>
 {% endblock %}

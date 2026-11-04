@@ -46,32 +46,38 @@
     tray.hidden = picked.length === 0;
     if (picked.length === 0) return;
 
-    const names = node("span", { className: "flex flex-1 flex-wrap gap-2" });
+    const names = node("span", { className: "flex flex-1 flex-wrap items-center gap-2" });
     for (const wood of picked) {
-      const remove = node("button", { type: "button", className: "link-btn", textContent: "✕" });
+      const remove = node("button", {
+        type: "button",
+        className: "grid size-5 cursor-pointer place-items-center rounded-full border-0 bg-transparent text-muted hover:bg-line hover:text-fg",
+        textContent: "✕",
+      });
       remove.setAttribute("aria-label", `${tray.dataset.clear}: ${wood.name}`);
       remove.addEventListener("click", () => {
         picked = picked.filter((other) => other.id !== wood.id);
         store();
         render();
       });
-      names.append(node("span", { className: "rounded-full border border-line px-3 py-0.5" }, wood.name, " ", remove));
+      names.append(
+        node("span", { className: "inline-flex items-center gap-1 rounded-full bg-subtle py-1 pr-1 pl-3 text-sm" }, wood.name, remove),
+      );
     }
     const ready = picked.length >= 2;
-    const go = node("a", { className: "btn", textContent: `${tray.dataset.compare} (${picked.length})` });
+    const go = node("a", { className: "btn py-2 text-sm", textContent: `${tray.dataset.compare} (${picked.length})` });
     if (ready) {
       go.href = "/compare?" + picked.map((wood) => `id=${encodeURIComponent(wood.id)}`).join("&");
     } else {
       go.setAttribute("aria-disabled", "true");
     }
-    const clear = node("button", { type: "button", className: "link-btn", textContent: tray.dataset.clear });
+    const clear = node("button", { type: "button", className: "link-btn text-muted", textContent: tray.dataset.clear });
     clear.addEventListener("click", () => {
       picked = [];
       store();
       render();
     });
     const hint = node("span", {
-      className: "text-muted",
+      className: "text-sm text-muted",
       textContent: picked.length >= MAX ? tray.dataset.full : ready ? "" : tray.dataset.hint,
     });
     tray.append(names, hint, go, clear);
@@ -92,6 +98,10 @@
       form.requestSubmit();
     }
   });
+
+  // On a phone the filters fold away above the results; their summary opens them again.
+  const filters = document.querySelector("[data-filters]");
+  if (filters && window.matchMedia("(max-width: 767px)").matches) filters.open = false;
 
   document.querySelectorAll("[data-no-js]").forEach((element) => {
     element.hidden = true;

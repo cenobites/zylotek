@@ -6,27 +6,32 @@
 /* Tag classes are built from the kind of tag, so the scanner cannot see them. */
 @source inline("border-l-tag-{hardness,density,stability,color,region}");
 
-/* The palette, light and dark, as variables the theme colours point at. */
+/* The palette, light and dark, as variables the theme colours point at. Warm paper, ink and one
+   walnut accent: the photos and the grain swatches bring the colour. */
 :root {
-  --bg: #fbf8f3;
-  --fg: #2b2118;
-  --muted: #6f6254;
-  --line: #e3d9cb;
+  --bg: #faf8f4;
+  --fg: #221c16;
+  --muted: #776b5e;
+  --line: #ebe4d9;
+  --subtle: #f3eee6;
   --card: #fff;
   --accent: #8a4b1f;
   --accent-fg: #fff;
   --danger: #b3261e;
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1712;
-    --fg: #f1e8dc;
-    --muted: #a99a88;
-    --line: #3a3128;
-    --card: #251f18;
-    --accent: #d08a4e;
+    --bg: #15120f;
+    --fg: #f2ebe1;
+    --muted: #a39584;
+    --line: #2f2822;
+    --subtle: #211c17;
+    --card: #1b1713;
+    --accent: #d99a62;
     --accent-fg: #1c1712;
     --danger: #f2b8b5;
+    color-scheme: dark;
   }
 }
 
@@ -35,20 +40,24 @@
   --color-fg: var(--fg);
   --color-muted: var(--muted);
   --color-line: var(--line);
+  --color-subtle: var(--subtle);
   --color-card: var(--card);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
   --color-danger: var(--danger);
-  --color-tag-hardness: #8a4b1f;
+  --color-tag-hardness: #a0582a;
   --color-tag-density: #6b7d3a;
-  --color-tag-stability: #3a6d7d;
-  --color-tag-color: #b08a4e;
-  --color-tag-region: #7d3a6b;
+  --color-tag-stability: #3a7287;
+  --color-tag-color: #b8904a;
+  --color-tag-region: #8a4577;
 }
 
 @theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, ui-serif, serif;
   --animate-step-in: step-in 0.4s ease-out forwards;
   --animate-blink: blink 1s steps(2) infinite;
+  --animate-rise: rise 0.35s ease-out both;
   @keyframes step-in {
     from {
       opacity: 0;
@@ -64,51 +73,154 @@
       opacity: 0;
     }
   }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+  }
 }
 
 @layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
   a {
     color: var(--accent);
+    text-underline-offset: 0.2em;
   }
   h1 {
-    @apply mt-4 mb-2 text-2xl font-bold;
+    @apply mt-6 mb-2 font-serif text-3xl font-semibold tracking-tight text-balance md:text-4xl;
   }
   h2 {
-    @apply mt-6 mb-2 text-xl font-semibold;
+    @apply mt-10 mb-3 font-serif text-xl font-semibold tracking-tight;
+  }
+  :focus-visible {
+    @apply rounded-sm outline-2 outline-offset-2 outline-accent;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--accent);
+  }
+  ::selection {
+    @apply bg-accent/20;
   }
 }
 
 /* The few shapes used all over; everything else is utilities in the templates. */
 @layer components {
+  .icon {
+    @apply inline-block size-[1.15em] shrink-0 fill-none stroke-current align-[-0.2em];
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
   .card {
-    @apply my-3 rounded-xl border border-line bg-card p-4;
+    @apply my-3 rounded-2xl border border-line bg-card p-5;
+  }
+  .lift {
+    @apply transition duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-[0_10px_30px_-12px_rgb(60_35_15/0.25)] motion-reduce:transition-none motion-reduce:hover:translate-y-0;
   }
   .btn {
-    @apply inline-block cursor-pointer rounded-lg border border-accent bg-accent px-4 py-2 text-accent-fg no-underline hover:opacity-90 aria-disabled:pointer-events-none aria-disabled:opacity-50;
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-full border border-accent bg-accent px-5 py-2.5 font-medium text-accent-fg no-underline transition hover:brightness-110 active:scale-[0.98] aria-disabled:pointer-events-none aria-disabled:opacity-40 motion-reduce:transition-none;
   }
   .btn-quiet {
-    @apply border-line bg-card text-fg hover:border-accent hover:opacity-100;
+    @apply border-line bg-card text-fg hover:border-accent/50 hover:bg-subtle hover:brightness-100;
+  }
+  .icon-btn {
+    @apply inline-flex size-10 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-fg transition hover:bg-subtle;
   }
   .field {
-    @apply rounded-lg border border-line bg-card px-3 py-2 text-fg placeholder:text-muted;
+    @apply rounded-xl border border-line bg-card px-3.5 py-2.5 text-fg transition outline-none placeholder:text-muted focus:border-accent/60 focus:ring-4 focus:ring-accent/10;
   }
   .tag {
-    @apply my-0.5 mr-1 inline-block rounded border border-line border-l-[3px] bg-bg px-1.5 text-xs text-fg no-underline hover:border-accent focus-visible:border-accent;
+    @apply my-0.5 mr-1 inline-flex items-center rounded-full border border-line border-l-[3px] bg-subtle/60 px-2.5 py-0.5 text-xs text-fg no-underline transition hover:border-accent/50 hover:bg-subtle;
   }
   .chip {
-    @apply my-0.5 mr-1 inline-block rounded-full border border-accent px-3 text-sm no-underline;
+    @apply my-0.5 mr-1 inline-flex items-center gap-1 rounded-full bg-accent/10 px-3 py-1 text-sm text-accent no-underline transition hover:bg-accent/20;
+  }
+  /* The view switch keeps its links plain text; the icons are masks drawn before them. */
+  .view-toggle {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-fg no-underline transition before:size-4 before:bg-current before:content-[''] hover:bg-subtle aria-[current]:bg-accent aria-[current]:text-accent-fg;
+    &::before {
+      mask: var(--mask) center / contain no-repeat;
+    }
+    &[data-view="cards"] {
+      --mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round'%3E%3Crect x='3.5' y='3.5' width='7' height='7' rx='1.5'/%3E%3Crect x='13.5' y='3.5' width='7' height='7' rx='1.5'/%3E%3Crect x='3.5' y='13.5' width='7' height='7' rx='1.5'/%3E%3Crect x='13.5' y='13.5' width='7' height='7' rx='1.5'/%3E%3C/svg%3E");
+    }
+    &[data-view="list"] {
+      --mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round'%3E%3Cpath d='M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01'/%3E%3C/svg%3E");
+    }
   }
   .link-btn {
-    @apply cursor-pointer border-0 bg-transparent p-0 text-sm text-accent underline;
+    @apply cursor-pointer border-0 bg-transparent p-0 text-sm text-accent underline-offset-4 hover:underline;
+  }
+  .eyebrow {
+    @apply text-xs font-semibold tracking-[0.14em] text-muted uppercase;
   }
   .data-table {
-    @apply w-full border-collapse bg-card;
+    @apply w-full border-separate border-spacing-0 overflow-hidden rounded-2xl border border-line bg-card text-sm;
     & th,
     & td {
-      @apply border border-line px-2.5 py-1.5 text-left align-top;
+      @apply border-b border-line px-4 py-2.5 text-left align-top;
+    }
+    & tr:last-child > th,
+    & tr:last-child > td {
+      @apply border-b-0;
+    }
+    & tbody th {
+      @apply font-medium whitespace-nowrap text-muted;
+    }
+    & thead th {
+      @apply bg-subtle font-semibold text-fg;
     }
   }
   .spinner {
     @apply inline-block size-[1em] animate-spin rounded-full border-[0.15em] border-line border-t-accent align-[-0.15em] motion-reduce:animate-none;
+  }
+  /* A drawn stand-in for a photo: rings of growth, flat-sawn, in the heartwood's colour.
+     `view::grain` sets --wood, where the rings centre (--gx, --gy) and how far apart they are. */
+  .grain {
+    --r: var(--ring, 26px);
+    background-color: var(--wood, #a87449);
+    background-image:
+      linear-gradient(100deg, rgb(255 255 255 / 0.14), transparent 40%, rgb(0 0 0 / 0.2)),
+      radial-gradient(ellipse 90% 60% at calc(100% - var(--gx, 40%)) -10%, rgb(255 255 255 / 0.1), transparent 70%),
+      repeating-radial-gradient(
+        ellipse 230% 80% at var(--gx, 40%) var(--gy, 140%),
+        transparent 0,
+        rgb(0 0 0 / 0.16) calc(var(--r) * 0.06),
+        transparent calc(var(--r) * 0.2),
+        transparent calc(var(--r) * 0.5),
+        rgb(0 0 0 / 0.07) calc(var(--r) * 0.58),
+        transparent calc(var(--r) * 0.72),
+        rgb(255 255 255 / 0.06) calc(var(--r) * 0.86),
+        transparent var(--r)
+      );
+  }
+
+}
+
+/* A tag is a pill with a coloured dot for its kind. Unlayered, so it wins over the stripe the
+   `border-l-tag-*` utility in the markup gives it. */
+.tag[data-tag] {
+  border-left-width: 1px;
+  border-left-color: var(--line);
+  &::before {
+    content: "";
+    width: 0.4rem;
+    height: 0.4rem;
+    margin-right: 0.35rem;
+    border-radius: 9999px;
+    background: var(--dot, var(--muted));
+  }
+  &[data-tag="hardness"] { --dot: var(--color-tag-hardness); }
+  &[data-tag="density"] { --dot: var(--color-tag-density); }
+  &[data-tag="stability"] { --dot: var(--color-tag-stability); }
+  &[data-tag="color"] { --dot: var(--color-tag-color); }
+  &[data-tag="region"] { --dot: var(--color-tag-region); }
+  &:hover {
+    border-color: color-mix(in oklab, var(--accent) 50%, transparent);
   }
 }

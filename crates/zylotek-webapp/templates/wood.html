@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ wood.name }}{% endblock %}
 {% block content %}
+<p class="mt-2 mb-6 text-sm"><a class="-ml-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-muted no-underline transition hover:bg-subtle hover:text-fg" href="/woods">{{ t.all_woods }}</a></p>
 {% include "wood_body.html" %}
-<p class="mt-4"><a href="/woods">{{ t.all_woods }}</a></p>
 {% endblock %}

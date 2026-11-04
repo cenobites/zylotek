@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
 {% block content %}
-<h1>{{ title }}</h1>
-<p>{{ message }}</p>
-<p class="text-muted">{{ t.error_word }} {{ status }}</p>
-<p><a href="/">{{ t.back_to_start }}</a></p>
+<div class="mx-auto flex max-w-lg flex-col items-center py-16 text-center">
+<span class="grid size-16 place-items-center rounded-2xl bg-accent/10 text-accent"><svg class="icon size-8"><use href="#i-alert"/></svg></span>
+<p class="eyebrow mt-6 mb-0">{{ t.error_word }} {{ status }}</p>
+<h1 class="mt-2">{{ title }}</h1>
+<p class="text-muted">{{ message }}</p>
+<p class="mt-6"><a class="btn" href="/">{{ t.back_to_start }}</a></p>
+</div>
 {% endblock %}

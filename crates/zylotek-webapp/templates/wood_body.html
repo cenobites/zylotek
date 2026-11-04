@@ -1,14 +1,26 @@
+<div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+<div class="aspect-[4/3] overflow-hidden rounded-3xl border border-line shadow-[0_20px_50px_-25px_rgb(60_35_15/0.45)]">{% if let Some(image) = wood.image %}<img class="block size-full object-cover" src="{{ image }}" alt="{{ wood.name }}" referrerpolicy="no-referrer">{% else %}<div class="grain size-full" style="{{ wood.grain }}" role="img" aria-label="{{ t.no_photo }}"></div>{% endif %}</div>
+<div>
 <h1>{{ wood.name }}</h1>
-<p><em>{{ wood.scientific_name }}</em>{% if !wood.common_names.is_empty() %} · {{ t.also_called }} {{ wood.common_names }}{% endif %}</p>
-{% if let Some(image) = wood.image %}<img class="max-h-88 max-w-full rounded-xl" src="{{ image }}" alt="{{ wood.name }}" referrerpolicy="no-referrer">{% endif %}
-<h2>{{ t.key_figures }}</h2>
-<table class="data-table">{% for fact in wood.facts %}<tr><th>{{ fact.label }}</th><td>{{ fact.value }}</td></tr>{% endfor %}</table>
-{% if let Some(text) = wood.end_uses %}<h2>{{ t.typical_uses }}</h2><p>{{ text }}</p>{% endif %}
-{% if let Some(text) = wood.workability_notes %}<h2>{{ t.working_it }}</h2><p>{{ text }}</p>{% endif %}
-{% if let Some(text) = wood.preservation %}<h2>{{ t.durability }}</h2><p>{{ text }}</p>{% endif %}
-{% if !wood.characteristics.is_empty() %}<h2>{{ t.general_characteristics }}</h2>
-<table class="data-table">{% for pair in wood.characteristics %}<tr><th>{{ pair.key }}</th><td>{{ pair.value }}</td></tr>{% endfor %}</table>{% endif %}
-{% if !wood.tree.is_empty() %}<h2>{{ t.the_tree }}</h2>
-<table class="data-table">{% for pair in wood.tree %}<tr><th>{{ pair.key }}</th><td>{{ pair.value }}</td></tr>{% endfor %}</table>{% endif %}
-{% if let Some(note) = wood.location_note %}<p class="text-muted">{{ note }}</p>{% endif %}
-{% if let Some(url) = wood.source_url %}<p class="text-muted"><a href="{{ url }}" target="_blank" rel="noopener noreferrer">{{ t.source }}</a></p>{% endif %}
+<p class="m-0 text-muted"><em class="font-serif text-lg">{{ wood.scientific_name }}</em>{% if !wood.common_names.is_empty() %} · {{ t.also_called }} {{ wood.common_names }}{% endif %}</p>
+{% if let Some(note) = wood.location_note %}<p class="mt-2 mb-0 flex items-center gap-1.5 text-sm text-muted"><svg class="icon"><use href="#i-pin"/></svg>{{ note }}</p>{% endif %}
+<h2 class="eyebrow mt-7 font-sans">{{ t.key_figures }}</h2>
+<dl class="m-0 grid grid-cols-2 gap-2.5 sm:grid-cols-3">{% for fact in wood.facts %}<div class="rounded-xl border border-line bg-card px-3.5 py-2.5"><dt class="text-xs text-muted">{{ fact.label }}</dt><dd class="m-0 mt-0.5 font-semibold tabular-nums">{{ fact.value }}</dd></div>{% endfor %}</dl>
+</div>
+</div>
+{% if wood.end_uses.is_some() || wood.workability_notes.is_some() || wood.preservation.is_some() %}
+<div class="mt-10 grid gap-4 md:grid-cols-[repeat(auto-fit,minmax(16rem,1fr))]">
+{% if let Some(text) = wood.end_uses %}<section class="rounded-2xl border border-line bg-card p-5"><h2 class="mt-0 flex items-center gap-2 text-lg"><span class="grid size-8 place-items-center rounded-lg bg-accent/10 text-accent"><svg class="icon"><use href="#i-book"/></svg></span>{{ t.typical_uses }}</h2><p class="m-0 text-[0.95rem]">{{ text }}</p></section>{% endif %}
+{% if let Some(text) = wood.workability_notes %}<section class="rounded-2xl border border-line bg-card p-5"><h2 class="mt-0 flex items-center gap-2 text-lg"><span class="grid size-8 place-items-center rounded-lg bg-accent/10 text-accent"><svg class="icon"><use href="#i-hammer"/></svg></span>{{ t.working_it }}</h2><p class="m-0 text-[0.95rem]">{{ text }}</p></section>{% endif %}
+{% if let Some(text) = wood.preservation %}<section class="rounded-2xl border border-line bg-card p-5"><h2 class="mt-0 flex items-center gap-2 text-lg"><span class="grid size-8 place-items-center rounded-lg bg-accent/10 text-accent"><svg class="icon"><use href="#i-clock"/></svg></span>{{ t.durability }}</h2><p class="m-0 text-[0.95rem]">{{ text }}</p></section>{% endif %}
+</div>
+{% endif %}
+{% if !wood.characteristics.is_empty() || !wood.tree.is_empty() %}
+<div class="mt-4">
+{% if !wood.characteristics.is_empty() %}<section><h2 class="flex items-center gap-2"><svg class="icon text-accent"><use href="#i-palette"/></svg>{{ t.general_characteristics }}</h2>
+<dl class="m-0 grid gap-x-10 rounded-2xl border border-line bg-card px-5 py-1 text-sm sm:grid-cols-2">{% for pair in wood.characteristics %}<div class="flex items-baseline justify-between gap-6 border-b border-line/70 py-2.5"><dt class="text-muted first-letter:uppercase">{{ pair.key }}</dt><dd class="m-0 text-right first-letter:uppercase">{{ pair.value }}</dd></div>{% endfor %}</dl></section>{% endif %}
+{% if !wood.tree.is_empty() %}<section><h2 class="flex items-center gap-2"><svg class="icon text-accent"><use href="#i-tree"/></svg>{{ t.the_tree }}</h2>
+<dl class="m-0 grid gap-x-10 rounded-2xl border border-line bg-card px-5 py-1 text-sm sm:grid-cols-2">{% for pair in wood.tree %}<div class="flex items-baseline justify-between gap-6 border-b border-line/70 py-2.5"><dt class="text-muted first-letter:uppercase">{{ pair.key }}</dt><dd class="m-0 text-right first-letter:uppercase">{{ pair.value }}</dd></div>{% endfor %}</dl></section>{% endif %}
+</div>
+{% endif %}
+{% if let Some(url) = wood.source_url %}<p class="mt-8 text-sm"><a class="inline-flex items-center gap-1.5" href="{{ url }}" target="_blank" rel="noopener noreferrer"><svg class="icon"><use href="#i-external"/></svg>{{ t.source }}</a></p>{% endif %}

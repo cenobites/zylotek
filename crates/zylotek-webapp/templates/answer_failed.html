@@ -1,7 +1,7 @@
-<div class="results card failed border-danger">
-<p class="text-danger">{{ message }}</p>
+<div class="results card failed mt-8 flex items-start gap-3 border-danger/40">
+<svg class="icon mt-0.5 size-5 text-danger"><use href="#i-alert"/></svg><p class="m-0 text-danger">{{ message }}</p>
 </div>
-<p class="done"><a href="/">{{ t.back_to_start }}</a></p>
+<p class="done mt-6"><a class="btn btn-quiet" href="/">{{ t.back_to_start }}</a></p>
 </main>
 </div>
 {% include "footer.html" %}

@@ -5,17 +5,18 @@
 {% if refresh %}<meta http-equiv="refresh" content="3">{% endif %}
 <title>{{ t.answer_title }} · Zylotek</title>
 </head>
-<body class="group/body bg-bg font-sans leading-relaxed text-fg [--page:84rem]">
+<body class="group/body min-h-screen bg-bg font-sans leading-relaxed text-fg [--page:80rem]">
+{% include "icons.html" %}
 {% include "nav.html" %}
 <div>
 {% include "sidebar.html" %}
-<main class="group/answer mx-auto w-full max-w-(--page) p-4" data-ask-id="{{ id }}" data-question="{{ question }}">
+<main class="answer group/answer mx-auto w-full max-w-4xl px-4 pt-6 pb-16 sm:px-6" data-ask-id="{{ id }}" data-question="{{ question }}">
 <script src="/static/history.js"></script>
-<h1>{{ t.answer_heading }}</h1>
-<p class="question text-lg text-muted italic">“{{ question }}”</p>
-<div class="thinking card group-has-[.results]/answer:hidden" role="status" aria-live="polite">
-<p class="mb-2 font-semibold"><span class="spinner" aria-hidden="true"></span> {{ t.thinking }}</p>
-<ol class="m-0 list-decimal pl-6">
-{% for step in t.thinking_steps %}<li class="animate-step-in opacity-0 [animation-delay:calc(var(--step)*2.5s)] motion-reduce:animate-none motion-reduce:opacity-100" style="--step:{{ loop.index0 }}">{{ step }}</li>
+<p class="eyebrow mt-4 mb-0 inline-flex items-center gap-1.5"><svg class="icon text-accent"><use href="#i-sparkles"/></svg>{{ t.answer_heading }}</p>
+<p class="question mt-2 mb-0 font-serif text-2xl leading-snug font-medium text-balance md:text-3xl">“{{ question }}”</p>
+<div class="thinking mt-8 rounded-2xl border border-line bg-card p-5 group-has-[.results]/answer:hidden" role="status" aria-live="polite">
+<p class="mt-0 mb-3 flex items-center gap-2.5 font-semibold"><span class="spinner" aria-hidden="true"></span> {{ t.thinking }}</p>
+<ol class="m-0 list-none space-y-2 p-0 text-sm text-muted">
+{% for step in t.thinking_steps %}<li class="flex animate-step-in items-center gap-2 opacity-0 [animation-delay:calc(var(--step)*2.5s)] motion-reduce:animate-none motion-reduce:opacity-100" style="--step:{{ loop.index0 }}"><svg class="icon text-accent"><use href="#i-check"/></svg>{{ step }}</li>
 {% endfor %}</ol>
 </div>

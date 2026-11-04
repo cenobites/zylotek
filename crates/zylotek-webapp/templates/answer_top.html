@@ -1,38 +1,48 @@
-<div class="results">
-{% if !summary.is_empty() %}<p>{{ t.understood }} <strong>{{ summary }}</strong></p>{% endif %}
-<p class="my-2">{{ t.looked_at }}
-{% for chip in criteria %}<span class="my-0.5 mr-1 ml-1 inline-block rounded-full border border-line px-3">{{ chip }}</span>{% endfor %}
+<div class="results mt-8 animate-rise motion-reduce:animate-none">
+{% if !summary.is_empty() %}<div class="flex items-start gap-3 rounded-2xl bg-subtle/80 p-4"><svg class="icon mt-0.5 size-5 text-accent"><use href="#i-sparkles"/></svg><p class="m-0">{{ t.understood }} <strong>{{ summary }}</strong></p></div>{% endif %}
+<p class="mt-4 flex flex-wrap items-center gap-1.5 text-sm text-muted">{{ t.looked_at }}
+{% for chip in criteria %}<span class="inline-flex rounded-full border border-line bg-card px-3 py-0.5 text-fg">{{ chip }}</span>{% endfor %}
 </p>
 {% if cards.is_empty() %}
-<p>{{ t.no_matches }}</p>
+<div class="mt-6 flex flex-col items-center rounded-3xl border border-dashed border-line px-6 py-12 text-center"><span class="grid size-12 place-items-center rounded-2xl bg-subtle text-muted"><svg class="icon size-6"><use href="#i-search"/></svg></span><p class="mt-3 mb-0">{{ t.no_matches }}</p></div>
 </div>
 {% else %}
-<form method="get" action="/compare">
+<form method="get" action="/compare" class="mt-6">
+<ol class="m-0 list-none space-y-3 p-0">
 {% for card in cards %}
-<div class="card wood-card" id="card-{{ card.id }}">
-<label>{% if can_compare %}<input type="checkbox" name="id" value="{{ card.id }}"> {% endif %}<strong>{{ card.name }}</strong></label>
-<em class="text-muted">{{ card.scientific_name }}</em> — {{ t.match_word }} <strong>{{ card.percent }}%</strong>
-<div class="my-2 h-1.5 overflow-hidden rounded bg-line"><i class="block h-full bg-accent" style="width:{{ card.percent }}%"></i></div>
-<ul class="my-2 list-disc pl-6">
-{% for reason in card.reasons %}<li>{{ reason.label }}: {{ reason.value }} <span class="text-muted">({{ reason.better_than }})</span></li>{% endfor %}
-</ul>
-<a class="peek font-semibold" href="#peek-{{ card.id }}">{{ t.full_details }} →</a>
+<li class="card wood-card m-0 flex gap-4 p-4 transition hover:border-accent/40 sm:p-5" id="card-{{ card.id }}">
+<a class="grain relative hidden size-24 shrink-0 rounded-xl sm:block" style="{{ card.grain }}" href="#peek-{{ card.id }}" tabindex="-1" aria-hidden="true"><span class="absolute top-1.5 left-1.5 grid size-6 place-items-center rounded-full bg-card/90 text-xs font-semibold text-fg">{{ loop.index }}</span></a>
+<div class="min-w-0 flex-1">
+<div class="flex flex-wrap items-start gap-x-4 gap-y-1">
+<div class="min-w-0 flex-1">
+<label class="flex items-center gap-2">{% if can_compare %}<input type="checkbox" name="id" value="{{ card.id }}"> {% endif %}<strong class="font-serif text-lg">{{ card.name }}</strong></label>
+<em class="text-sm text-muted">{{ card.scientific_name }}</em>
 </div>
+<span class="text-sm text-muted [&>strong]:ml-1 [&>strong]:font-serif [&>strong]:text-2xl [&>strong]:text-fg">{{ t.match_word }} <strong>{{ card.percent }}%</strong></span>
+</div>
+<div class="my-3 h-1.5 overflow-hidden rounded-full bg-line"><i class="block h-full rounded-full bg-accent" style="width:{{ card.percent }}%"></i></div>
+<ul class="m-0 list-none space-y-1 p-0 text-sm">
+{% for reason in card.reasons %}<li class="flex items-start gap-2"><svg class="icon mt-0.5 text-accent"><use href="#i-check"/></svg><span>{{ reason.label }}: {{ reason.value }} <span class="text-muted">({{ reason.better_than }})</span></span></li>{% endfor %}
+</ul>
+<a class="peek mt-3 inline-flex items-center gap-1 text-sm font-medium no-underline hover:underline" href="#peek-{{ card.id }}">{{ t.full_details }} <svg class="icon"><use href="#i-arrow-right"/></svg></a>
+</div>
+</li>
 {% endfor %}
-{% if can_compare %}<p class="mt-3"><button class="btn" type="submit">{{ t.compare_submit_range }}</button></p>{% endif %}
+</ol>
+{% if can_compare %}<p class="mt-4"><button class="btn btn-quiet" type="submit"><svg class="icon"><use href="#i-columns"/></svg>{{ t.compare_submit_range }}</button></p>{% endif %}
 </form>
 {% for card in cards %}
-<aside class="drawer group/drawer pointer-events-none invisible fixed inset-0 z-10 flex justify-end target:pointer-events-auto target:visible" id="peek-{{ card.id }}" aria-label="{{ card.name }}">
-<a class="absolute inset-0 bg-black/40 opacity-0 transition-opacity duration-200 group-target/drawer:opacity-100 motion-reduce:transition-none" href="#card-{{ card.id }}" tabindex="-1" aria-hidden="true"></a>
-<div class="relative flex h-full w-[min(40rem,100%)] translate-x-full flex-col border-l border-line bg-bg transition-transform duration-250 ease-out group-target/drawer:translate-x-0 motion-reduce:transition-none">
-<div class="flex flex-wrap items-baseline gap-4 border-b border-line px-4 py-3"><strong>{{ card.name }}</strong>
-<a href="/woods/{{ card.id }}" target="_blank" rel="noopener">{{ t.open_full_page }}</a>
-<a class="close ml-auto" href="#card-{{ card.id }}">✕ {{ t.close }}</a></div>
+<aside class="drawer group/drawer pointer-events-none invisible fixed inset-0 z-30 flex justify-end overflow-hidden target:pointer-events-auto target:visible" id="peek-{{ card.id }}" aria-label="{{ card.name }}">
+<a class="absolute inset-0 bg-black/30 opacity-0 backdrop-blur-[2px] transition-opacity duration-200 group-target/drawer:opacity-100 motion-reduce:transition-none" href="#card-{{ card.id }}" tabindex="-1" aria-hidden="true"></a>
+<div class="relative flex h-full w-[min(42rem,100%)] translate-x-full flex-col border-l border-line bg-bg shadow-2xl transition-transform duration-300 ease-out group-target/drawer:translate-x-0 motion-reduce:transition-none">
+<div class="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3"><strong class="font-serif text-lg">{{ card.name }}</strong>
+<a href="/woods/{{ card.id }}" target="_blank" rel="noopener"><span class="text-sm">{{ t.open_full_page }}</span></a>
+<a class="close ml-auto" href="#card-{{ card.id }}"><span class="icon-btn size-9 text-muted" title="{{ t.close }}"><svg class="icon size-5"><use href="#i-x"/></svg><span class="sr-only">{{ t.close }}</span></span></a></div>
 <iframe class="w-full flex-1 border-0 bg-bg" src="/woods/{{ card.id }}?embed=1" loading="lazy" title="{{ card.name }}"></iframe>
 </div>
 </aside>
 {% endfor %}
 </div>
 <h2>{{ t.in_short }}</h2>
-<p class="writing text-muted group-has-[.done]/answer:hidden"><span class="spinner" aria-hidden="true"></span> {{ t.writing }}</p>
-<div class="prose card whitespace-pre-wrap after:animate-blink after:text-accent after:content-['▍'] group-has-[.done]/answer:after:content-none motion-reduce:after:animate-none">{% endif %}
+<p class="writing flex items-center gap-2 text-sm text-muted group-has-[.done]/answer:hidden"><span class="spinner" aria-hidden="true"></span> {{ t.writing }}</p>
+<div class="prose card text-[1.02rem] leading-7 whitespace-pre-wrap after:animate-blink after:text-accent after:content-['▍'] group-has-[.done]/answer:after:content-none motion-reduce:after:animate-none">{% endif %}

@@ -1,6 +1,6 @@
 {% if has_explanation_box %}</div>{% endif %}
-<p class="{% if finished %}done {% endif %}mt-4 text-muted">{{ ranked }}</p>
-<p><a href="/">{{ t.ask_another }}</a></p>
+<p class="{% if finished %}done {% endif %}mt-4 text-sm text-muted">{{ ranked }}</p>
+<p class="mt-8"><a class="btn" href="/"><svg class="icon"><use href="#i-plus"/></svg>{{ t.ask_another }}</a></p>
 </main>
 </div>
 {% include "footer.html" %}

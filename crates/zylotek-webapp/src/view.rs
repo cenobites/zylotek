@@ -132,6 +132,8 @@ fn rating(rating: WorkabilityRating) -> Option<f64> {
 
 pub struct WoodView {
     pub id: String,
+    /// See [`grain`].
+    pub grain: String,
     pub name: String,
     pub scientific_name: String,
     pub common_names: String,
@@ -145,6 +147,39 @@ pub struct WoodView {
     pub end_uses: Option<String>,
     pub preservation: Option<String>,
     pub workability_notes: Option<String>,
+}
+
+/// A drawn stand-in for a photo: wood grain in the colour of the heartwood, its rings placed
+/// from the id so every wood keeps a look of its own. Custom properties for a `style`
+/// attribute; the `.grain` class in the stylesheet draws them.
+pub fn grain(color: Option<&str>, seed: &str) -> String {
+    let color = color.map(crate::browse::fold).unwrap_or_default();
+    let tone = [
+        ("marr", "#8b5a35"),
+        ("amarel", "#c79a45"),
+        ("branc", "#dcc8a6"),
+        ("bege", "#d2b48c"),
+        ("cinz", "#948a7c"),
+        ("ros", "#c48a74"),
+        ("vermel", "#9a432c"),
+        ("oliv", "#86804a"),
+        ("pret", "#3d3029"),
+        ("rox", "#6c3d4c"),
+    ]
+    .iter()
+    .find(|(name, _)| color.starts_with(name))
+    .map_or("#a87449", |(_, hex)| hex);
+    // FNV-1a: stable across runs and machines, unlike the standard hasher.
+    let hash = seed.bytes().fold(0x811c_9dc5_u32, |h, b| {
+        (h ^ u32::from(b)).wrapping_mul(0x0100_0193)
+    });
+
+    format!(
+        "--wood:{tone};--gx:{}%;--gy:{}%;--ring:{}px",
+        10 + hash % 81,
+        115 + (hash >> 8) % 70,
+        18 + (hash >> 16) % 18
+    )
 }
 
 /// Only web addresses become links or images: the data comes from a scraped site.
@@ -169,6 +204,10 @@ pub fn detail(wood: &WoodResponse, lang: Lang) -> WoodView {
 
     WoodView {
         id: wood.id.clone(),
+        grain: grain(
+            description.heartwood_color_classification.as_deref(),
+            &wood.id,
+        ),
         name: wood.name.clone(),
         scientific_name: wood.scientific_name.clone(),
         common_names: details.common_names.join(", "),
@@ -205,6 +244,8 @@ pub struct TagView {
 /// A wood as the browse page shows it, as a card or as a row.
 pub struct ItemView {
     pub id: String,
+    /// See [`grain`].
+    pub grain: String,
     pub name: String,
     pub scientific_name: String,
     pub common_names: String,
@@ -267,6 +308,7 @@ pub fn item(entry: &Entry, query: &Query, lang: Lang) -> ItemView {
 
     ItemView {
         id: wood.id.clone(),
+        grain: grain(entry.color.as_deref(), &wood.id),
         name: wood.name.clone(),
         scientific_name: wood.scientific_name.clone(),
         common_names: wood
@@ -750,6 +792,8 @@ pub struct ReasonView {
 
 pub struct CardView {
     pub id: String,
+    /// See [`grain`]; a recommendation carries no colour, so only the rings vary.
+    pub grain: String,
     pub name: String,
     pub scientific_name: String,
     pub percent: u32,
@@ -788,6 +832,7 @@ fn percent(fraction: f64) -> u32 {
 pub fn card(recommendation: &Recommendation, lang: Lang) -> CardView {
     CardView {
         id: recommendation.wood_id.clone(),
+        grain: grain(None, &recommendation.wood_id),
         name: recommendation.name.clone(),
         scientific_name: recommendation.scientific_name.clone(),
         percent: percent(recommendation.score),
@@ -828,6 +873,16 @@ mod tests {
 
     fn value<'a>(facts: &'a [Fact], label: &str) -> &'a str {
         &facts.iter().find(|f| f.label == label).unwrap().value
+    }
+
+    #[test]
+    fn the_grain_takes_the_heartwood_colour_and_stays_the_same_for_a_wood() {
+        assert!(grain(Some("Vermelha"), "a").starts_with("--wood:#9a432c;"));
+        assert!(grain(Some("marrom-escuro"), "a").starts_with("--wood:#8b5a35;"));
+        assert!(grain(Some("lilás"), "a").starts_with("--wood:#a87449;"));
+        assert!(grain(None, "a").starts_with("--wood:#a87449;"));
+        assert_eq!(grain(None, "ipe"), grain(None, "ipe"));
+        assert_ne!(grain(None, "ipe"), grain(None, "cedro"));
     }
 
     #[test]

@@ -1,7 +1,13 @@
-<header class="mx-auto flex w-full max-w-(--page) flex-wrap items-baseline gap-5 border-b border-line p-4">
-<button type="button" class="btn btn-quiet px-2.5 py-0.5 text-lg leading-tight" data-sidebar-toggle aria-controls="sidebar" aria-expanded="false" aria-label="{{ t.nav_history }}" title="{{ t.nav_history }}" hidden>☰</button>
-<a class="text-xl font-bold text-fg no-underline" href="/">Zylotek</a>
-<a class="text-fg no-underline hover:underline" href="/">{{ t.nav_ask }}</a>
-<a class="text-fg no-underline hover:underline" href="/woods">{{ t.nav_browse }}</a>
-<span class="ml-auto text-sm"><a href="/?lang=en" hreflang="en" lang="en">English</a> · <a href="/?lang=pt-br" hreflang="pt-BR" lang="pt-BR">Português</a></span>
+<header class="sticky top-0 z-10 border-b border-line/80 bg-bg/80 backdrop-blur-lg">
+<div class="mx-auto flex w-full max-w-(--page) items-center gap-1 px-4 py-2.5 sm:gap-2 sm:px-6">
+<button type="button" class="icon-btn -ml-2" data-sidebar-toggle aria-controls="sidebar" aria-expanded="false" aria-label="{{ t.nav_history }}" title="{{ t.nav_history }}" hidden><svg class="icon size-5"><use href="#i-menu"/></svg></button>
+<a class="mr-2 inline-flex items-center gap-2 font-serif text-xl font-semibold tracking-tight text-fg no-underline sm:mr-4" href="/"><svg class="icon size-6 text-accent"><use href="#i-logo"/></svg>Zylotek</a>
+<a class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted no-underline transition hover:bg-subtle hover:text-fg" href="/" title="{{ t.nav_ask }}"><svg class="icon"><use href="#i-sparkles"/></svg><span class="max-sm:sr-only">{{ t.nav_ask }}</span></a>
+<a class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted no-underline transition hover:bg-subtle hover:text-fg" href="/woods" title="{{ t.nav_browse }}"><svg class="icon"><use href="#i-grid"/></svg><span class="max-sm:sr-only">{{ t.nav_browse }}</span></a>
+<span class="ml-auto inline-flex items-center gap-0.5 rounded-full border border-line p-0.5 text-xs font-medium">
+<svg class="icon mx-1.5 text-muted"><use href="#i-globe"/></svg>
+<a class="rounded-full px-2.5 py-1 text-muted no-underline transition hover:text-fg aria-[current]:bg-subtle aria-[current]:text-fg" href="/?lang=en" hreflang="en" lang="en" title="English"{% if t.html_lang == "en" %} aria-current="true"{% endif %}>EN</a>
+<a class="rounded-full px-2.5 py-1 text-muted no-underline transition hover:text-fg aria-[current]:bg-subtle aria-[current]:text-fg" href="/?lang=pt-br" hreflang="pt-BR" lang="pt-BR" title="Português"{% if t.html_lang != "en" %} aria-current="true"{% endif %}>PT</a>
+</span>
+</div>
 </header>

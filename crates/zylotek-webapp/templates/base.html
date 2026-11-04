@@ -5,11 +5,12 @@
 <script src="/static/history.js" defer></script>
 <title>{% block title %}Zylotek{% endblock %} · Zylotek</title>
 </head>
-<body class="group/body bg-bg font-sans leading-relaxed text-fg [--page:84rem]">
+<body class="group/body min-h-screen bg-bg font-sans leading-relaxed text-fg [--page:80rem]">
+{% include "icons.html" %}
 {% include "nav.html" %}
 <div>
 {% include "sidebar.html" %}
-<main class="mx-auto w-full max-w-(--page) p-4">
+<main class="mx-auto w-full max-w-(--page) px-4 pt-4 pb-16 sm:px-6">
 {% block content %}{% endblock %}
 </main>
 </div>

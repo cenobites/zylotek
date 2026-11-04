@@ -74,8 +74,8 @@
       const remove = element("button", {
         type: "button",
         className:
-          "cursor-pointer border-0 bg-transparent px-2 py-0.5 text-muted opacity-0 group-hover/item:opacity-100 focus-visible:opacity-100 group-[.active]/item:opacity-100",
-        textContent: "×",
+          "mr-1 grid size-6 shrink-0 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-xs text-muted opacity-0 hover:bg-line hover:text-fg group-hover/item:opacity-100 focus-visible:opacity-100 group-[.active]/item:opacity-100",
+        textContent: "✕",
         title: list.dataset.remove,
       });
       remove.setAttribute("aria-label", `${list.dataset.remove}: ${item.question}`);
@@ -84,7 +84,7 @@
         render();
       });
       const link = element("a", {
-        className: "min-w-0 flex-1 truncate px-2 py-1.5 text-fg no-underline",
+        className: "min-w-0 flex-1 truncate px-2.5 py-2 text-fg no-underline",
         href: `/asks/${encodeURIComponent(item.id)}`,
         textContent: item.question,
         title: `${item.question}\n${when(item.at)}`,
@@ -95,7 +95,8 @@
           "li",
           {
             className:
-              "group/item flex items-center rounded-lg hover:bg-line" + (item.id === current ? " active bg-line" : ""),
+              "group/item flex items-center rounded-lg transition hover:bg-subtle" +
+              (item.id === current ? " active bg-subtle font-medium" : ""),
           },
           link,
           remove,
