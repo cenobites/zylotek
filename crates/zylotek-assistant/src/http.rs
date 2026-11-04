@@ -32,10 +32,15 @@ use zylotek_contracts::{
     assistant::{AskRequest, AskResponse, AssistantHealth, events},
 };
 
-use crate::{assistant::Assistant, error::AskError};
+use crate::{assistant::Assistant, error::AskError, llm::REQUEST_TIMEOUT};
 
 /// A question is at most 1000 characters; this leaves room for JSON and multi-byte text.
 const MAX_BODY_BYTES: usize = 8 * 1024;
+/// An ask makes up to two model calls before it answers (reading the need, then explaining or
+/// starting to). Longer than both, so a slow model, one still loading say, ends in the model
+/// client's own timeout instead of the request being dropped mid-load.
+const ASK_TIMEOUT: Duration = Duration::from_secs(2 * REQUEST_TIMEOUT.as_secs() + 10);
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -54,17 +59,18 @@ pub fn router(assistant: Arc<Assistant>, token: Option<String>) -> Router {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    let timeout = |after| TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, after);
+
     Router::new()
-        .route("/health", get(health))
-        .route("/v1/ask", post(ask))
-        .route("/v1/ask/stream", post(ask_stream))
+        .route("/health", get(health).layer(timeout(HEALTH_TIMEOUT)))
+        .route("/v1/ask", post(ask).layer(timeout(ASK_TIMEOUT)))
+        .route(
+            "/v1/ask/stream",
+            post(ask_stream).layer(timeout(ASK_TIMEOUT)),
+        )
         .layer(axum::middleware::from_fn(logging_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
-        .layer(TimeoutLayer::with_status_code(
-            axum::http::StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(5),
-        ))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(RequestBodyLimitLayer::new(1024 * 1024)) // 1MB
         .layer(ConcurrencyLimitLayer::new(100)) // 100 concurrent requests
@@ -315,6 +321,44 @@ mod tests {
         assert_eq!(body["recommendations"][0]["name"], "Hard");
         assert_eq!(body["explanation"], "Hard wins.");
         assert_eq!(body["catalogue_size"], 2);
+    }
+
+    /// A model that takes its time on every call, like one still being loaded.
+    struct SlowModel(Arc<ScriptedModel>, Duration);
+
+    #[async_trait::async_trait]
+    impl crate::llm::Model for SlowModel {
+        async fn complete(
+            &self,
+            messages: &[crate::llm::Message],
+            schema: Option<&Value>,
+        ) -> Result<String, ModelError> {
+            tokio::time::sleep(self.1).await;
+            self.0.complete(messages, schema).await
+        }
+
+        async fn stream(
+            &self,
+            messages: &[crate::llm::Message],
+        ) -> Result<crate::llm::TextStream, ModelError> {
+            tokio::time::sleep(self.1).await;
+            self.0.stream(messages).await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_slow_model_is_waited_for_instead_of_cut_off() {
+        let catalogue = Arc::new(Catalogue::new());
+        catalogue.replace(vec![hardness("Hard", 1500.0), hardness("Soft", 300.0)]);
+        let model = ScriptedModel::new(vec![Ok(NEED.into()), Ok("Hard wins.".into())]);
+        let slow = Arc::new(SlowModel(model, Duration::from_secs(60)));
+        let app = router(Arc::new(Assistant::new(slow, catalogue, 5)), None);
+
+        let (status, body, _) = call(&app, ask_request(&question("a hard table"), None)).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["explanation"], "Hard wins.");
+        assert!(ASK_TIMEOUT > 2 * REQUEST_TIMEOUT);
     }
 
     #[tokio::test]
