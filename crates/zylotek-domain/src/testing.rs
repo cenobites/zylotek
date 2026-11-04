@@ -9,6 +9,10 @@ use std::{
 };
 
 use crate::{
+    asks::{
+        entities::{Ask, AskId},
+        repositories::AskRepository,
+    },
     errors::RepositoryError,
     woods::{
         entities::{Wood, WoodId},
@@ -278,39 +282,49 @@ impl WoodRepository for InMemoryWoodRepository {
     }
 }
 
-/// An [`AskRepository`](crate::asks::repositories::AskRepository) in memory.
+/// An [`AskRepository`](crate::asks::repositories::AskRepository) in memory, with
+/// per-operation fault injection (`FindById`, `Save`, `Update`).
 #[derive(Default)]
 pub struct InMemoryAskRepository {
-    asks: Mutex<HashMap<crate::asks::entities::AskId, crate::asks::entities::Ask>>,
+    asks: Mutex<HashMap<AskId, Ask>>,
+    failures: Mutex<HashSet<Operation>>,
 }
 
 impl InMemoryAskRepository {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Makes `operation` return [`RepositoryError::Unavailable`] from now on.
+    pub fn fail_on(self, operation: Operation) -> Self {
+        self.failures.lock().unwrap().insert(operation);
+        self
+    }
+
+    fn check(&self, operation: Operation) -> Result<(), RepositoryError> {
+        if self.failures.lock().unwrap().contains(&operation) {
+            return Err(RepositoryError::Unavailable);
+        }
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
-impl crate::asks::repositories::AskRepository for InMemoryAskRepository {
-    async fn find_by_id(
-        &self,
-        id: crate::asks::entities::AskId,
-    ) -> Result<Option<crate::asks::entities::Ask>, RepositoryError> {
+impl AskRepository for InMemoryAskRepository {
+    async fn find_by_id(&self, id: AskId) -> Result<Option<Ask>, RepositoryError> {
+        self.check(Operation::FindById)?;
         Ok(self.asks.lock().unwrap().get(&id).cloned())
     }
 
-    async fn save(
-        &self,
-        ask: &crate::asks::entities::Ask,
-    ) -> Result<crate::asks::entities::Ask, RepositoryError> {
+    async fn save(&self, ask: &Ask) -> Result<Ask, RepositoryError> {
+        self.check(Operation::Save)?;
         self.asks.lock().unwrap().insert(ask.id(), ask.clone());
         Ok(ask.clone())
     }
 
-    async fn update(
-        &self,
-        ask: &crate::asks::entities::Ask,
-    ) -> Result<crate::asks::entities::Ask, RepositoryError> {
-        self.save(ask).await
+    async fn update(&self, ask: &Ask) -> Result<Ask, RepositoryError> {
+        self.check(Operation::Update)?;
+        self.asks.lock().unwrap().insert(ask.id(), ask.clone());
+        Ok(ask.clone())
     }
 }

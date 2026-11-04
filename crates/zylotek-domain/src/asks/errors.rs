@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{asks::entities::AskState, errors::RepositoryError};
+use crate::{asks::value_objects::AskState, errors::RepositoryError};
 
 #[derive(Debug, Error)]
 pub enum AskError {

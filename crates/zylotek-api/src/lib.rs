@@ -1,11 +1,16 @@
 use std::sync::Arc;
 
-use zylotek_application::asks::{AskFacade, SystemClock};
+use zylotek_application::asks::{
+    clock::SystemClock, create_ask::CreateAsk, facade::AskFacade, get_ask::GetAsk,
+    handlers::AskEventHandler, record_ask_progress::RecordAskProgress,
+};
 use zylotek_application::woods::{
     create_wood::CreateWood, delete_wood::DeleteWood, facade::WoodFacade, get_wood::GetWood,
     handlers::WoodEventHandler, list_woods::ListWoods, update_wood::UpdateWood,
 };
-use zylotek_domain::asks::repositories::AskRepository;
+use zylotek_domain::asks::{
+    events::AskEvent, repositories::AskRepository, services::AskWorkflowService,
+};
 use zylotek_domain::woods::{
     events::WoodEvent,
     repositories::WoodRepository,
@@ -29,10 +34,10 @@ pub use server::serve;
 #[cfg(test)]
 mod test_support;
 
-/// Wires the use cases and event handler on top of the repositories, and guards the write
+/// Wires the use cases and event handlers on top of the repositories, and guards the write
 /// routes with `auth`.
 ///
-/// Spawns the event handler, so it must be called inside a Tokio runtime.
+/// Spawns the event handlers, so it must be called inside a Tokio runtime.
 pub fn build_state(
     wood_repository: Arc<dyn WoodRepository>,
     ask_repository: Arc<dyn AskRepository>,
@@ -63,9 +68,36 @@ pub fn build_state(
 
     AppState {
         woods: Arc::new(wood_facade),
-        asks: Arc::new(AskFacade::new(ask_repository, Arc::new(SystemClock))),
+        asks: Arc::new(build_ask_facade(ask_repository)),
         auth,
     }
+}
+
+fn build_ask_facade(ask_repository: Arc<dyn AskRepository>) -> AskFacade {
+    let ask_event_publisher = Arc::new(TokioEventPublisher::<AskEvent>::new(1024));
+    let clock = Arc::new(SystemClock);
+    let ask_workflow_service = AskWorkflowService::new();
+
+    let create_ask = CreateAsk::new(
+        ask_event_publisher.clone(),
+        ask_repository.clone(),
+        ask_workflow_service,
+        clock.clone(),
+    );
+    let get_ask = GetAsk::new(ask_repository.clone());
+    let record_ask_progress = RecordAskProgress::new(
+        ask_event_publisher.clone(),
+        ask_repository,
+        ask_workflow_service,
+        clock,
+    );
+
+    tokio::spawn(run_event_handler(
+        ask_event_publisher.subscribe(),
+        AskEventHandler::new(),
+    ));
+
+    AskFacade::new(create_ask, get_ask, record_ask_progress)
 }
 
 #[cfg(test)]
@@ -77,7 +109,7 @@ mod tests {
     use super::*;
     use crate::{
         router::router,
-        test_support::{send, wood_body},
+        test_support::{send, send_as, wood_body},
     };
 
     #[tokio::test]
@@ -108,5 +140,19 @@ mod tests {
 
         let (status, _) = send(&router, Method::DELETE, &uri, None).await;
         assert_eq!(status, StatusCode::NO_CONTENT);
+
+        // Likewise for asks: opening one publishes `AskOpened` to the spawned ask handler.
+        let (status, ask) = send_as(
+            &router,
+            Method::POST,
+            "/api/v1/asks",
+            Some(&json!({"question": "a table"})),
+            Some(crate::auth::testing::asks_token()),
+        )
+        .await;
+        assert_eq!(
+            (status, &ask["state"]),
+            (StatusCode::CREATED, &json!("queued"))
+        );
     }
 }

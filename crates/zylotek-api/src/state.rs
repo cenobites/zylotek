@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use zylotek_application::{asks::AskFacade, woods::facade::WoodFacade};
+use zylotek_application::{asks::facade::AskFacade, woods::facade::WoodFacade};
 
 use crate::auth::Auth;
 
