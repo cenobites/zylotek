@@ -34,6 +34,28 @@ Layered / hexagonal workspace, with dependencies pointing inward (`api` → `app
 
 A domain type is mirrored three times: domain value object, persistence model (`models.rs` + `mappers.rs`) and API wire type (`zylotek-contracts/src/woods.rs`, converted by `zylotek-api/src/woods/mappers.rs`). Adding a field to the wood means touching all three plus the sync parsers, then regenerating the migration with `db setup`. Clients (web app, assistant) read the contracts crate, never the domain.
 
+### DDD rules (every aggregate, new or changed)
+
+`woods` is the reference; `asks` follows it. Keep each aggregate in this shape:
+
+- **Domain** (`zylotek-domain/src/<aggregate>/`): `entities.rs` (aggregate root with private
+  fields; `create` returns `(Self, Event)`, every state change is a method returning the event
+  it implies, `restore` rebuilds from storage without one), `value_objects/` (self-validating,
+  immutable; no bare `String`/number with rules attached reaches an entity), `services.rs`
+  (domain services for rules that span the aggregate or need a port), `repositories.rs` (the
+  port trait), `events.rs`, `errors.rs`. No I/O, no clock, no framework types.
+- **Application** (`zylotek-application/src/<aggregate>/`): one use case per file with a single
+  `execute` (validate via value objects → domain service/entity → repository → publish the
+  event), a `*Command` struct for its input, a `facade.rs` that adapters call, a `handlers.rs`
+  `EventHandler` for the aggregate's events, an `errors.rs` `*UseCaseError` (`NotFound`,
+  `Domain`, `Persistence`, `Event`), and a test-only `support.rs` harness.
+- **Infrastructure**: implements the port, mapping rows through value-object constructors on
+  the way out. **API**: handlers map contract types to commands/steps, call the facade, and
+  map `*UseCaseError` to `ApiError`; `build_state` wires the use cases and spawns each
+  aggregate's event handler.
+- Never skip a layer (an API handler never touches a repository or an entity's internals) and
+  never let a dependency point outward.
+
 Dependencies are declared once in the root `[workspace.dependencies]`; crates reference them with `{ workspace = true }`.
 
 ## Gotchas

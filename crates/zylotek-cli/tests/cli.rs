@@ -697,7 +697,7 @@ fn auth_client_create_validates_and_never_replaces_a_client() {
             "-s",
             "woods:write",
             "-s",
-            "woods:read",
+            "asks:write",
         ])
         .assert()
         .success();
@@ -715,13 +715,13 @@ fn auth_client_create_validates_and_never_replaces_a_client() {
     auth(&dir)
         .args(["auth", "client", "create", "other", "--scope", "WRITE"])
         .assert()
-        .code(1)
-        .stderr(predicate::str::contains("invalid scope"));
+        .code(2)
+        .stderr(predicate::str::contains("invalid value 'WRITE'"));
     auth(&dir)
         .args(["auth", "client", "list"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("bot\twoods:write woods:read"))
+        .stderr(predicate::str::contains("bot\twoods:write asks:write"))
         .stderr(predicate::str::contains("other").not());
 }
 

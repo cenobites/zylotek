@@ -1,7 +1,8 @@
 use zylotek_domain::{
     asks::{
-        entities::{self as domain, Question, Ranking, StoredAsk, Timestamp},
+        entities::{self as domain, StoredAsk},
         repositories::AskRepository,
+        value_objects::{Explanation, FailureReason, Question, Ranking, Timestamp},
     },
     errors::RepositoryError,
 };
@@ -40,9 +41,9 @@ impl AskRepository for SqliteAskRepository {
             .question(ask.question().as_str().to_owned())
             .state(ask.state().as_str().to_owned())
             .ranking(ask.ranking().map(|r| r.as_str().to_owned()))
-            .explanation(ask.explanation().to_owned())
+            .explanation(ask.explanation().as_str().to_owned())
             .explanation_complete(ask.explanation_complete())
-            .failure(ask.failure().map(str::to_owned))
+            .failure(ask.failure().map(|f| f.as_str().to_owned()))
             .created_at(ask.created_at().0)
             .updated_at(ask.updated_at().0)
             .exec(&mut db)
@@ -59,9 +60,9 @@ impl AskRepository for SqliteAskRepository {
             .update()
             .state(ask.state().as_str().to_owned())
             .ranking(ask.ranking().map(|r| r.as_str().to_owned()))
-            .explanation(ask.explanation().to_owned())
+            .explanation(ask.explanation().as_str().to_owned())
             .explanation_complete(ask.explanation_complete())
-            .failure(ask.failure().map(str::to_owned))
+            .failure(ask.failure().map(|f| f.as_str().to_owned()))
             .updated_at(ask.updated_at().0)
             .exec(&mut db)
             .await
@@ -88,9 +89,9 @@ fn to_domain(model: Ask) -> Result<domain::Ask, RepositoryError> {
             .map(Ranking::new)
             .transpose()
             .map_err(invalid)?,
-        explanation: model.explanation,
+        explanation: Explanation::new(&model.explanation),
         explanation_complete: model.explanation_complete,
-        failure: model.failure,
+        failure: model.failure.as_deref().map(FailureReason::new),
         created_at: Timestamp(model.created_at),
         updated_at: Timestamp(model.updated_at),
     }))
@@ -103,7 +104,7 @@ fn database_error(err: toasty::Error) -> RepositoryError {
 
 #[cfg(test)]
 mod tests {
-    use zylotek_domain::asks::entities::AskState;
+    use zylotek_domain::asks::value_objects::AskState;
 
     use super::*;
     use crate::persistence::build_db;
@@ -115,7 +116,7 @@ mod tests {
     #[tokio::test]
     async fn an_ask_is_saved_found_and_updated_step_by_step() {
         let repository = repository().await;
-        let mut ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1));
+        let mut ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1)).0;
 
         let saved = repository.save(&ask).await.unwrap();
         ask.start(Timestamp(2)).unwrap();
@@ -131,7 +132,7 @@ mod tests {
         assert_eq!((saved.id(), saved.state()), (ask.id(), AskState::Queued));
         assert_eq!(updated.state(), AskState::Answered);
         assert_eq!(updated.ranking().unwrap().as_str(), r#"{"woods": 1}"#);
-        assert_eq!(updated.explanation(), "Cedro é estável.");
+        assert_eq!(updated.explanation().as_str(), "Cedro é estável.");
         assert!(!updated.explanation_complete());
         assert_eq!(
             (updated.created_at(), updated.updated_at()),
@@ -142,21 +143,22 @@ mod tests {
     #[tokio::test]
     async fn a_failure_is_stored_and_an_unknown_id_is_none() {
         let repository = repository().await;
-        let mut ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1));
+        let mut ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1)).0;
         repository.save(&ask).await.unwrap();
-        ask.fail("the model is down", Timestamp(2)).unwrap();
+        ask.fail(FailureReason::new("the model is down"), Timestamp(2))
+            .unwrap();
 
         let failed = repository.update(&ask).await.unwrap();
         let missing = repository.find_by_id(domain::AskId::new()).await.unwrap();
 
-        assert_eq!(failed.failure(), Some("the model is down"));
+        assert_eq!(failed.failure().unwrap().as_str(), "the model is down");
         assert!(missing.is_none());
     }
 
     #[tokio::test]
     async fn updating_an_ask_that_was_never_saved_fails() {
         let repository = repository().await;
-        let ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1));
+        let ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1)).0;
 
         let error = repository.update(&ask).await.unwrap_err();
 
@@ -193,7 +195,7 @@ mod tests {
     #[tokio::test]
     async fn an_ask_saved_with_its_ranking_keeps_it() {
         let repository = repository().await;
-        let mut ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1));
+        let mut ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1)).0;
         ask.start(Timestamp(2)).unwrap();
         ask.rank(Ranking::new("{}".into()).unwrap(), Timestamp(3))
             .unwrap();
@@ -206,7 +208,7 @@ mod tests {
     #[tokio::test]
     async fn saving_the_same_ask_twice_is_a_database_error() {
         let repository = repository().await;
-        let ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1));
+        let ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1)).0;
         repository.save(&ask).await.unwrap();
 
         let error = repository.save(&ask).await.unwrap_err();

@@ -3,14 +3,16 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use zylotek_application::asks::{AskUseCaseError, Progress};
+use zylotek_application::asks::{create_ask::CreateAskCommand, errors::AskUseCaseError};
 use zylotek_contracts::{
     asks::{AskProgressRequest, AskRecordResponse, AskStateSchema, CreateAskRequest},
     assistant::AskResponse,
 };
 use zylotek_domain::asks::{
-    entities::{Ask, AskId, AskState},
+    entities::{Ask, AskId},
     errors::AskError,
+    services::AskStep,
+    value_objects::AskState,
 };
 
 use crate::{auth::AskWriteAccess, errors::ApiError, state::AppState};
@@ -20,7 +22,12 @@ pub async fn create_ask_handler(
     State(state): State<AppState>,
     Json(request): Json<CreateAskRequest>,
 ) -> Result<(StatusCode, Json<AskRecordResponse>), ApiError> {
-    let ask = state.asks.create(&request.question).await?;
+    let ask = state
+        .asks
+        .create_ask(CreateAskCommand {
+            question: request.question,
+        })
+        .await?;
 
     Ok((StatusCode::CREATED, Json(record(&ask)?)))
 }
@@ -29,7 +36,7 @@ pub async fn get_ask_handler(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<AskRecordResponse>, ApiError> {
-    let ask = state.asks.get(parse_id(&id)?).await?;
+    let ask = state.asks.get_ask(parse_id(&id)?).await?;
 
     Ok(Json(record(&ask)?))
 }
@@ -40,17 +47,17 @@ pub async fn record_progress_handler(
     Path(id): Path<String>,
     Json(request): Json<AskProgressRequest>,
 ) -> Result<Json<AskRecordResponse>, ApiError> {
-    let progress = match request {
-        AskProgressRequest::Started => Progress::Started,
-        AskProgressRequest::Ranked { answer } => Progress::Ranked(
+    let step = match request {
+        AskProgressRequest::Started => AskStep::Started,
+        AskProgressRequest::Ranked { answer } => AskStep::Ranked(
             serde_json::to_string(&answer).expect("an assistant answer always serializes"),
         ),
-        AskProgressRequest::Explaining => Progress::Explaining,
-        AskProgressRequest::Explained { text } => Progress::Explained(text),
-        AskProgressRequest::Answered { complete } => Progress::Answered { complete },
-        AskProgressRequest::Failed { reason } => Progress::Failed(reason),
+        AskProgressRequest::Explaining => AskStep::Explaining,
+        AskProgressRequest::Explained { text } => AskStep::Explained(text),
+        AskProgressRequest::Answered { complete } => AskStep::Answered { complete },
+        AskProgressRequest::Failed { reason } => AskStep::Failed(reason),
     };
-    let ask = state.asks.record(parse_id(&id)?, progress).await?;
+    let ask = state.asks.record_ask_progress(parse_id(&id)?, step).await?;
 
     Ok(Json(record(&ask)?))
 }
@@ -85,9 +92,9 @@ fn record(ask: &Ask) -> Result<AskRecordResponse, ApiError> {
         question: ask.question().as_str().to_owned(),
         state: state_schema(ask.state()),
         answer,
-        explanation: ask.explanation().to_owned(),
+        explanation: ask.explanation().as_str().to_owned(),
         explanation_complete: ask.explanation_complete(),
-        failure: ask.failure().map(str::to_owned),
+        failure: ask.failure().map(|reason| reason.as_str().to_owned()),
         created_at: ask.created_at().0,
         updated_at: ask.updated_at().0,
     })
@@ -103,9 +110,9 @@ impl From<AskUseCaseError> for ApiError {
             AskUseCaseError::Domain(AskError::InvalidId(_)) => {
                 ApiError::BadRequest(error.to_string())
             }
-            AskUseCaseError::Domain(AskError::Repository(_)) | AskUseCaseError::Persistence(_) => {
-                ApiError::Internal(anyhow::Error::new(error))
-            }
+            AskUseCaseError::Domain(AskError::Repository(_))
+            | AskUseCaseError::Persistence(_)
+            | AskUseCaseError::Event(_) => ApiError::Internal(anyhow::Error::new(error)),
             AskUseCaseError::Domain(_) => ApiError::UnprocessableEntity(error.to_string()),
         }
     }
@@ -262,10 +269,19 @@ mod tests {
     #[tokio::test]
     async fn a_stored_ranking_that_no_longer_reads_is_an_internal_error() {
         let app = app();
-        let ask = app.asks.create("a table").await.unwrap();
-        app.asks.record(ask.id(), Progress::Started).await.unwrap();
+        let ask = app
+            .asks
+            .create_ask(CreateAskCommand {
+                question: "a table".into(),
+            })
+            .await
+            .unwrap();
         app.asks
-            .record(ask.id(), Progress::Ranked("not an answer".into()))
+            .record_ask_progress(ask.id(), AskStep::Started)
+            .await
+            .unwrap();
+        app.asks
+            .record_ask_progress(ask.id(), AskStep::Ranked("not an answer".into()))
             .await
             .unwrap();
 
@@ -288,8 +304,12 @@ mod tests {
             RepositoryError::Database,
         )));
         let bad_id = ApiError::from(AskUseCaseError::Domain(AskError::InvalidId("x".into())));
+        let event = ApiError::from(AskUseCaseError::Event(
+            zylotek_infrastructure::event_bus::EventPublishError::NoSubscribers,
+        ));
 
         assert!(matches!(internal, ApiError::Internal(_)));
+        assert!(matches!(event, ApiError::Internal(_)));
         assert!(matches!(repository, ApiError::Internal(_)));
         assert!(matches!(bad_id, ApiError::BadRequest(_)));
         for state in AskState::ALL {

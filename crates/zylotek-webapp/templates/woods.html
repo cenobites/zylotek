@@ -61,13 +61,13 @@
 {% if let Some(href) = v.clear %}<p class="mt-4"><a class="btn btn-quiet text-sm" href="{{ href }}">{{ t.filters_clear }}</a></p>{% endif %}</div>
 {% else %}
 {% if v.list %}
-<div class="mt-5 overflow-x-auto"><table class="woods-list data-table">
-<thead><tr><th class="w-8"></th>{% for header in v.headers %}<th class="whitespace-nowrap">{% if let Some(href) = header.href %}<a class="text-inherit no-underline hover:text-accent" href="{{ href }}">{{ header.label }}{% if !header.arrow.is_empty() %} {{ header.arrow }}{% endif %}</a>{% else %}{{ header.label }}{% endif %}</th>{% endfor %}<th>{{ t.facet_color }}</th></tr></thead>
+<div class="mt-5"><table class="woods-list data-table">
+<thead><tr><th class="w-6"></th>{% for header in v.headers %}<th>{% if let Some(href) = header.href %}<a class="text-inherit no-underline hover:text-accent" href="{{ href }}">{{ header.label }}{% if !header.arrow.is_empty() %} {{ header.arrow }}{% endif %}</a>{% else %}{{ header.label }}{% endif %}</th>{% endfor %}<th>{{ t.facet_color }}</th></tr></thead>
 <tbody>
 {% for it in v.items %}
 <tr class="align-middle transition hover:bg-subtle/60 [&>td]:align-middle"><td><input type="checkbox" form="compare-form" name="id" value="{{ it.id }}" data-compare data-name="{{ it.name }}" aria-label="{{ it.compare_label }}"></td>
-<td><a class="inline-flex items-center gap-2.5 font-medium whitespace-nowrap text-fg no-underline hover:text-accent" href="/woods/{{ it.id }}">{% if let Some(image) = it.image %}<img class="size-8 rounded-lg object-cover" src="{{ image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="grain size-8 shrink-0 rounded-lg" style="{{ it.grain }}"></span>{% endif %}{{ it.name }}</a></td><td class="min-w-40"><em class="text-muted">{{ it.scientific_name }}</em></td><td>{{ it.family }}</td><td class="whitespace-nowrap tabular-nums">{{ it.hardness }}</td><td class="whitespace-nowrap tabular-nums">{{ it.density }}</td><td class="whitespace-nowrap tabular-nums">{{ it.shrinkage }}</td>
-<td class="whitespace-nowrap">{% for tag in it.tags %}{% if tag.kind == "color" || tag.kind == "region" %}<a class="tag border-l-tag-{{ tag.kind }}" data-tag="{{ tag.kind }}" href="{{ tag.href }}">{{ tag.label }}</a>{% endif %}{% endfor %}</td></tr>
+<td><a class="inline-flex items-center gap-2 font-medium text-fg no-underline hover:text-accent" href="/woods/{{ it.id }}">{% if let Some(image) = it.image %}<img class="size-6 shrink-0 rounded-md object-cover" src="{{ image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="grain size-6 shrink-0 rounded-md" style="{{ it.grain }}"></span>{% endif %}{{ it.name }}</a></td><td><em class="text-muted">{{ it.scientific_name }}</em></td><td>{{ it.family }}</td><td class="whitespace-nowrap tabular-nums">{{ it.hardness }}</td><td class="whitespace-nowrap tabular-nums">{{ it.density }}</td><td class="whitespace-nowrap tabular-nums">{{ it.shrinkage }}</td>
+<td>{% for tag in it.tags %}{% if tag.kind == "color" || tag.kind == "region" %}<a class="tag border-l-tag-{{ tag.kind }}" data-tag="{{ tag.kind }}" href="{{ tag.href }}">{{ tag.label }}</a>{% endif %}{% endfor %}</td></tr>
 {% endfor %}
 </tbody></table></div>
 {% else %}

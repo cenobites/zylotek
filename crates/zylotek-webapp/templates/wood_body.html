@@ -8,6 +8,13 @@
 <dl class="m-0 grid grid-cols-2 gap-2.5 sm:grid-cols-3">{% for fact in wood.facts %}<div class="rounded-xl border border-line bg-card px-3.5 py-2.5"><dt class="text-xs text-muted">{{ fact.label }}</dt><dd class="m-0 mt-0.5 font-semibold tabular-nums">{{ fact.value }}</dd></div>{% endfor %}</dl>
 </div>
 </div>
+{% if let Some(scale) = wood.scale %}
+<section class="mt-8 rounded-2xl border border-line bg-card p-5" aria-label="{{ t.fact_hardness }}">
+<div class="flex items-baseline justify-between gap-4"><h2 class="m-0 text-lg">{{ t.fact_hardness }}</h2><p class="m-0 text-right"><strong class="text-2xl tabular-nums">{{ scale.value }}</strong><br><span class="text-sm font-semibold text-accent">{{ scale.class }}</span></p></div>
+<div class="relative mt-5 h-3 rounded-full" style="background:linear-gradient(90deg,#c3d8f5,#e3b48a 35%,#fd9a3c 60%,#dc2626)" role="img" aria-label="{{ scale.value }}"><span class="absolute top-1/2 z-10 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#2d4a1a] shadow" style="left:{{ scale.at }}%"></span></div>
+<div class="relative mt-1 h-14 text-[0.7rem] text-muted">{% for mark in scale.marks %}<span class="absolute top-0 h-1.5 w-px bg-muted/40" style="left:{{ mark }}%"></span>{% endfor %}{% for tick in scale.ticks %}<span class="absolute top-0 h-2.5 w-px bg-muted" style="left:{{ tick.at }}%"></span><span class="absolute top-3 -translate-x-1/2 text-center leading-tight whitespace-nowrap" style="left:clamp(5%,{{ tick.at }}%,95%)">{{ tick.name }}<br>{{ tick.value }}</span>{% endfor %}<span class="absolute top-3 -translate-x-1/2 whitespace-nowrap rounded-md bg-[#2d4a1a] px-2 py-1 text-xs font-semibold text-white" style="left:clamp(8%,{{ scale.at }}%,92%)">{{ wood.name }}</span></div>
+</section>
+{% endif %}
 {% if wood.end_uses.is_some() || wood.workability_notes.is_some() || wood.preservation.is_some() %}
 <div class="mt-10 grid gap-4 md:grid-cols-[repeat(auto-fit,minmax(16rem,1fr))]">
 {% if let Some(text) = wood.end_uses %}<section class="rounded-2xl border border-line bg-card p-5"><h2 class="mt-0 flex items-center gap-2 text-lg"><span class="grid size-8 place-items-center rounded-lg bg-accent/10 text-accent"><svg class="icon"><use href="#i-book"/></svg></span>{{ t.typical_uses }}</h2><p class="m-0 text-[0.95rem]">{{ text }}</p></section>{% endif %}

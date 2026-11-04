@@ -35,6 +35,7 @@ http-body-util = { workspace = true }
 predicates = { workspace = true }
 reqwest = { workspace = true }
 proptest = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 tower = { workspace = true }
 wiremock = { workspace = true }
 

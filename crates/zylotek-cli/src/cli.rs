@@ -227,11 +227,11 @@ mod tests {
                     "create",
                     "assistant",
                     "--scope",
-                    "woods:read",
+                    "asks:write",
                     "-s",
                     "woods:write",
                 ],
-                create(&["woods:read", "woods:write"]),
+                create(&["asks:write", "woods:write"]),
             ),
         ];
 
@@ -240,6 +240,7 @@ mod tests {
         }
         assert!(parse(&["auth"]).is_err());
         assert!(parse(&["auth", "client", "create"]).is_err());
+        assert!(parse(&["auth", "client", "create", "webapp", "-s", "ask:write"]).is_err());
     }
 
     #[test]

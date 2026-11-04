@@ -59,13 +59,21 @@ The model. Organised per aggregate: `woods/`, and `asks/` (below).
 `thiserror` and `uuid`. Any value that reaches a `Wood` has passed through a value-object
 constructor, so an invalid wood cannot be built — not from HTTP, storage, or scraping.
 
-`asks/` is the second aggregate: an `Ask` is one question kept as a record while it is
-answered in the background. Its `AskState` only moves forward (queued → understanding → ranked
-→ explaining → answered, or to failed from any unfinished state; ranked → answered when there is
-nothing to explain), and every step is a method that refuses a transition the machine does not
-allow. The ranking is kept whole as the assistant's JSON document (`Ranking`): its shape belongs
-to the assistant's contract, not the domain. Times are `Timestamp`s the caller passes in; the
-domain never reads a clock. `AskRepository` is the port (find, save, update).
+`asks/` is the second aggregate, laid out like `woods/`:
+
+- `entities` — the `Ask` aggregate root and `AskId`: one question kept as a record while it is
+  answered in the background. Every change is a method (`start`, `rank`, `start_explaining`,
+  `explain`, `answer`, `fail`) that refuses a transition the state machine does not allow and
+  returns the `AskEvent` it implies; `create` returns `AskOpened`, `restore` emits nothing.
+- `value_objects/` — `AskState` (queued → understanding → ranked → explaining → answered, or to
+  failed from any unfinished state; ranked → answered when there is nothing to explain),
+  `Question`, `Ranking` (the assistant's JSON document, kept whole: its shape belongs to the
+  assistant's contract), `Explanation` (capped), `FailureReason` (capped, never blank) and
+  `Timestamp`. Times are passed in; the domain never reads a clock.
+- `services` — `AskWorkflowService` opens asks and applies a reported `AskStep` (the raw step
+  from whoever answers) as the matching transition.
+- `repositories` — the `AskRepository` port (find, save, update).
+- `events`, `errors`.
 
 ### `crates/zylotek-application`
 
@@ -83,8 +91,10 @@ alone, so importing twice is harmless; a name repeated within the batch keeps it
 occurrence; any other failure is recorded without stopping the batch. It returns an
 `ImportReport` (created, updated, unchanged, duplicates, failed).
 
-`asks::AskFacade` opens an ask, reads one and records a `Progress` step, with a `Clock` it is
-given (`SystemClock` in production) so tests can fix the time.
+Asks follow the same shape: `CreateAsk`, `GetAsk` and `RecordAskProgress` (one `AskStep`)
+behind `AskFacade`, each publishing its `AskEvent` to `AskEventHandler` (which logs), with
+`AskUseCaseError` (`NotFound`, `Domain`, `Persistence`, `Event`). They read the time from a
+`Clock` (`SystemClock` in production) so tests can fix it.
 
 `WoodFacade` is the entry point adapters call. `WoodEventHandler` handles every
 `WoodEvent`; it currently only logs. All use cases return `WoodUseCaseError`

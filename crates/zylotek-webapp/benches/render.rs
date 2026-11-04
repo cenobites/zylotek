@@ -77,7 +77,7 @@ fn benches(c: &mut Criterion) {
         b.iter(|| view::facts(black_box(&wood), Lang::PtBr))
     });
     c.bench_function("view/detail", |b| {
-        b.iter(|| view::detail(black_box(&wood), Lang::PtBr))
+        b.iter(|| view::detail(black_box(&wood), &[], Lang::PtBr))
     });
     c.bench_function("view/card", |b| {
         b.iter(|| view::card(black_box(&recommendation), Lang::PtBr))

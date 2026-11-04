@@ -10,12 +10,16 @@ use axum::{
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
-use zylotek_application::asks::{AskFacade, SystemClock};
+use zylotek_application::asks::{
+    clock::SystemClock, create_ask::CreateAsk, facade::AskFacade, get_ask::GetAsk,
+    record_ask_progress::RecordAskProgress,
+};
 use zylotek_application::woods::{
     create_wood::CreateWood, delete_wood::DeleteWood, facade::WoodFacade, get_wood::GetWood,
     list_woods::ListWoods, update_wood::UpdateWood,
 };
 use zylotek_domain::{
+    asks::services::AskWorkflowService,
     testing::{InMemoryAskRepository, InMemoryWoodRepository, full_details},
     woods::{
         events::WoodEvent,
@@ -75,9 +79,18 @@ pub(crate) fn app_with_auth(
         DeleteWood::new(publisher, repository.clone()),
     );
 
+    let ask_repository = Arc::new(InMemoryAskRepository::new());
+    let ask_events = Arc::new(RecordingEventPublisher::new());
+    let service = AskWorkflowService::new();
     let asks = Arc::new(AskFacade::new(
-        Arc::new(InMemoryAskRepository::new()),
-        Arc::new(SystemClock),
+        CreateAsk::new(
+            ask_events.clone(),
+            ask_repository.clone(),
+            service,
+            Arc::new(SystemClock),
+        ),
+        GetAsk::new(ask_repository.clone()),
+        RecordAskProgress::new(ask_events, ask_repository, service, Arc::new(SystemClock)),
     ));
 
     TestApp {

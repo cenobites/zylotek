@@ -130,6 +130,74 @@ fn rating(rating: WorkabilityRating) -> Option<f64> {
     Some(step / 6.0)
 }
 
+pub struct Tick {
+    pub name: String,
+    pub value: String,
+    /// Percent along the bar.
+    pub at: f64,
+}
+
+/// The Janka bar of the detail page: where this wood sits among the woods of the database.
+pub struct Scale {
+    pub value: String,
+    pub class: &'static str,
+    pub at: f64,
+    /// A faint stroke for every wood of the catalogue.
+    pub marks: Vec<f64>,
+    /// A few labelled woods spread over the range.
+    pub ticks: Vec<Tick>,
+}
+
+/// Labels closer than this (percent of the bar) to each other or to the marker would overlap.
+const LABEL_GAP: f64 = 13.0;
+
+fn janka(wood: &WoodResponse) -> Option<f64> {
+    let mechanical = &wood.details.mechanical_properties;
+    mechanical
+        .dry
+        .janka_hardness
+        .parallel_to_grain
+        .or(mechanical.green.janka_hardness.parallel_to_grain)
+        .filter(|v| v.is_finite() && *v > 0.0)
+}
+
+/// The bar runs from 0 to the hardest wood held, so every wood of the database fits on it.
+fn scale(wood: &WoodResponse, all: &[WoodResponse], lang: Lang) -> Option<Scale> {
+    let kgf = janka(wood)?;
+    let mut others: Vec<(f64, &str)> = all
+        .iter()
+        .filter(|other| other.id != wood.id)
+        .filter_map(|other| Some((janka(other)?, other.name.as_str())))
+        .collect();
+    others.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let max = others.last().map_or(kgf, |last| last.0.max(kgf));
+    let at = |v: f64| v / max * 100.0;
+
+    let mut ticks: Vec<Tick> = Vec::new();
+    for quantile in [0.0, 0.25, 0.5, 0.75, 1.0] {
+        let Some(&(value, name)) = others.get(((others.len() as f64 - 1.0) * quantile) as usize)
+        else {
+            break;
+        };
+        let spaced = |position: f64| (at(value) - position).abs() >= LABEL_GAP;
+        if spaced(at(kgf)) && ticks.iter().all(|tick| spaced(tick.at)) {
+            ticks.push(Tick {
+                name: name.to_owned(),
+                value: number(Some(value), 0, "", lang),
+                at: at(value),
+            });
+        }
+    }
+
+    Some(Scale {
+        value: number(Some(kgf), 0, "kgf", lang),
+        class: lang.strings().hardness_classes[crate::browse::Hardness::of(kgf).index()],
+        at: at(kgf),
+        marks: others.iter().map(|(value, _)| at(*value)).collect(),
+        ticks,
+    })
+}
+
 pub struct WoodView {
     pub id: String,
     /// See [`grain`].
@@ -142,6 +210,7 @@ pub struct WoodView {
     pub image: Option<String>,
     pub source_url: Option<String>,
     pub facts: Vec<Fact>,
+    pub scale: Option<Scale>,
     pub tree: Vec<Pair>,
     pub characteristics: Vec<Pair>,
     pub end_uses: Option<String>,
@@ -198,7 +267,7 @@ fn pairs(map: &std::collections::BTreeMap<String, String>) -> Vec<Pair> {
         .collect()
 }
 
-pub fn detail(wood: &WoodResponse, lang: Lang) -> WoodView {
+pub fn detail(wood: &WoodResponse, all: &[WoodResponse], lang: Lang) -> WoodView {
     let details = &wood.details;
     let description = &details.description;
 
@@ -223,6 +292,7 @@ pub fn detail(wood: &WoodResponse, lang: Lang) -> WoodView {
                 .map(|source| source.page_url.clone()),
         ),
         facts: facts(wood, lang),
+        scale: scale(wood, all, lang),
         tree: pairs(&description.tree),
         characteristics: pairs(&description.general_characteristics),
         end_uses: description.end_uses.clone(),
@@ -871,6 +941,29 @@ mod tests {
 
     use super::{testing::wood, *};
 
+    #[test]
+    fn the_scale_spans_the_catalogue_and_keeps_labels_apart() {
+        let all = crate::browse::testing::catalogue();
+        let ipe = all.iter().find(|w| w.name == "Ipê").unwrap();
+        let scale = scale(ipe, &all, Lang::En).unwrap();
+
+        assert_eq!(scale.at, 100.0, "the hardest wood sits at the end");
+        // Every wood but this one that has a hardness, which one fixture lacks.
+        assert_eq!(scale.marks.len(), all.iter().filter_map(janka).count() - 1);
+        assert!(
+            scale
+                .ticks
+                .iter()
+                .all(|t| (t.at - scale.at).abs() >= LABEL_GAP)
+        );
+        assert!(
+            scale
+                .ticks
+                .windows(2)
+                .all(|p| (p[1].at - p[0].at).abs() >= LABEL_GAP)
+        );
+    }
+
     fn value<'a>(facts: &'a [Fact], label: &str) -> &'a str {
         &facts.iter().find(|f| f.label == label).unwrap().value
     }
@@ -965,7 +1058,7 @@ mod tests {
             .insert("Altura".into(), "30 m".into());
         w.details.description.end_uses = Some("Móveis".into());
 
-        let view = detail(&w, Lang::En);
+        let view = detail(&w, &[], Lang::En);
 
         assert_eq!(view.common_names, "Cedro-rosa, Cedro-vermelho");
         assert_eq!(view.image, None, "a javascript: URL is dropped");
@@ -977,7 +1070,7 @@ mod tests {
         assert_eq!(view.end_uses.as_deref(), Some("Móveis"));
         w.details.images.main = Some("http://example.org/a.jpg".into());
         assert_eq!(
-            detail(&w, Lang::En).image.as_deref(),
+            detail(&w, &[], Lang::En).image.as_deref(),
             Some("http://example.org/a.jpg")
         );
     }
@@ -1049,6 +1142,6 @@ mod tests {
     }
 
     fn detail_note(w: &WoodResponse) -> Option<String> {
-        detail(w, Lang::PtBr).location_note
+        detail(w, &[], Lang::PtBr).location_note
     }
 }
