@@ -160,8 +160,6 @@ pub struct Strings {
     pub history_clear: &'static str,
     pub history_clear_confirm: &'static str,
     pub history_remove: &'static str,
-    pub history_saved_on: &'static str,
-    pub history_missing: &'static str,
 
     // Browsing.
     pub browse_title: &'static str,
@@ -241,6 +239,8 @@ pub struct Strings {
     pub message_internal: &'static str,
     pub that_page: &'static str,
     pub that_wood: &'static str,
+    pub that_ask: &'static str,
+    pub ask_interrupted: &'static str,
     pub invalid_wood: &'static str,
 
     // The figures of a wood (also the table headings of the comparison).
@@ -463,8 +463,6 @@ pub static EN: Strings = Strings {
     history_clear: "Clear history",
     history_clear_confirm: "Remove every saved question from this browser?",
     history_remove: "Remove",
-    history_saved_on: "Saved",
-    history_missing: "That answer is no longer saved in this browser.",
 
     browse_title: "Browse woods",
     browse_heading: "Brazilian woods",
@@ -552,6 +550,8 @@ pub static EN: Strings = Strings {
     message_internal: "The page could not be built. Please try again.",
     that_page: "that page",
     that_wood: "that wood",
+    that_ask: "that question",
+    ask_interrupted: "This answer stopped before it was finished. Please ask again.",
     invalid_wood: "One of the selected woods is not valid.",
 
     fact_family: "Family",
@@ -627,8 +627,6 @@ pub static PT_BR: Strings = Strings {
     history_clear: "Limpar histórico",
     history_clear_confirm: "Remover todas as perguntas salvas deste navegador?",
     history_remove: "Remover",
-    history_saved_on: "Salva em",
-    history_missing: "Essa resposta não está mais salva neste navegador.",
 
     browse_title: "Ver madeiras",
     browse_heading: "Madeiras brasileiras",
@@ -716,6 +714,8 @@ pub static PT_BR: Strings = Strings {
     message_internal: "Não foi possível montar a página. Tente novamente.",
     that_page: "essa página",
     that_wood: "essa madeira",
+    that_ask: "essa pergunta",
+    ask_interrupted: "Esta resposta parou antes de terminar. Pergunte novamente.",
     invalid_wood: "Uma das madeiras selecionadas não é válida.",
 
     fact_family: "Família",

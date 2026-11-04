@@ -134,12 +134,17 @@ impl Default for AssistantConfig {
 pub struct WebappConfig {
     /// Address the site listens on.
     pub listen: SocketAddr,
+    /// The OAuth client the site uses to open asks on the API (scope `asks:write`).
+    pub api_client_id: Option<String>,
+    pub api_client_secret: Option<String>,
 }
 
 impl Default for WebappConfig {
     fn default() -> Self {
         Self {
             listen: SocketAddr::from(([127, 0, 0, 1], 3000)),
+            api_client_id: None,
+            api_client_secret: None,
         }
     }
 }
@@ -226,6 +231,7 @@ mod tests {
         assert_eq!(config.assistant.listen.to_string(), "127.0.0.1:8090");
         assert_eq!(config.assistant.refresh_secs, 300);
         assert_eq!(config.webapp.listen.to_string(), "127.0.0.1:3000");
+        assert_eq!(config.webapp.api_client_id, None);
         assert_eq!(config.database.url, None);
     }
 
@@ -254,6 +260,16 @@ mod tests {
         assert_eq!(config.assistant.token.as_deref(), Some("secret"));
         assert_eq!(config.assistant.listen.to_string(), "0.0.0.0:9000");
         assert_eq!(config.assistant.model_name, "qwen2.5:3b");
+    }
+
+    #[test]
+    fn the_webapp_can_be_given_its_api_client() {
+        let config =
+            Config::parse("[webapp]\napi_client_id = \"webapp\"\napi_client_secret = \"s3cret\"")
+                .unwrap();
+
+        assert_eq!(config.webapp.api_client_id.as_deref(), Some("webapp"));
+        assert_eq!(config.webapp.api_client_secret.as_deref(), Some("s3cret"));
     }
 
     #[test]

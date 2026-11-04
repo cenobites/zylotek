@@ -74,7 +74,12 @@ fn seeded(runtime: &Runtime) -> (Router, String) {
     runtime.block_on(async {
         let db = memory_db().await.unwrap();
         let router = router(build_state(
-            Arc::new(PostgresWoodRepository::new(db)),
+            Arc::new(PostgresWoodRepository::new(db.clone())),
+            Arc::new(
+                zylotek_infrastructure::persistence::asks::repositories::SqliteAskRepository::new(
+                    db,
+                ),
+            ),
             testing::auth(),
         ));
         let mut middle = String::new();
@@ -219,6 +224,7 @@ fn oauth(c: &mut Criterion) {
         let router = runtime.block_on(async {
             router(build_state(
                 Arc::new(zylotek_domain::testing::InMemoryWoodRepository::new()),
+                Arc::new(zylotek_domain::testing::InMemoryAskRepository::new()),
                 testing::auth(),
             ))
         });

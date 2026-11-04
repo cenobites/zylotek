@@ -42,7 +42,10 @@ pub struct Api {
 pub async fn api_with(woods: &[(&str, f64)]) -> Api {
     let db = memory_db().await.unwrap();
     let app = router(build_state(
-        Arc::new(PostgresWoodRepository::new(db)),
+        Arc::new(PostgresWoodRepository::new(db.clone())),
+        Arc::new(
+            zylotek_infrastructure::persistence::asks::repositories::SqliteAskRepository::new(db),
+        ),
         testing::auth(),
     ));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -184,8 +187,17 @@ impl Drop for Site {
 
 pub async fn site(api_url: &str, assistant_url: &str) -> Site {
     let listen = free_port();
+    // The test API trusts this process's OAuth fixture; the site fetches its tokens with the
+    // fixture's asks client, as it would with the one `auth client create` makes.
+    let (client_id, client_secret) = testing::asker_credentials();
     let child = Command::new(assert_cmd::cargo::cargo_bin("zylotek-webapp"))
         .args(["--api-url", api_url, "--assistant-url", assistant_url])
+        .args([
+            "--api-client-id",
+            client_id,
+            "--api-client-secret",
+            client_secret,
+        ])
         .args(["--listen", &listen.to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::null())

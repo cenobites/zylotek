@@ -4832,6 +4832,7 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "assert_cmd",
+ "async-trait",
  "axum",
  "clap",
  "criterion",

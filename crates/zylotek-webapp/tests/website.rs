@@ -162,6 +162,61 @@ async fn the_ranking_reaches_the_browser_before_the_explanation_is_written() {
     assert!(rest.trim_end().ends_with("</html>"));
 }
 
+#[tokio::test]
+async fn an_ask_is_answered_and_stored_even_when_nobody_waits_for_it() {
+    use std::time::{Duration, Instant};
+
+    let (api, _model, _assistant, site) = running().await;
+    let no_redirects = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    // Ask, and leave before the answer page is even opened.
+    let asked = no_redirects
+        .post(format!("{}/ask", site.url))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body("question=a+hard+table")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(asked.status().as_u16(), 303);
+    let location = asked.headers()["location"].to_str().unwrap().to_owned();
+    let id = location.strip_prefix("/asks/").unwrap().to_owned();
+
+    // The API's record moves on by itself until it is answered.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let record = loop {
+        let text = reqwest::get(format!("{}/api/v1/asks/{id}", api.url))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        let record: serde_json::Value = serde_json::from_str(&text).unwrap();
+        if record["state"] == "answered" {
+            break record;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the ask never finished: {record}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let (status, page) = get(&site, &location).await;
+
+    assert_eq!(record["answer"]["recommendations"][0]["name"], "Hard");
+    assert!(
+        record["explanation"]
+            .as_str()
+            .unwrap()
+            .contains("wood suits a table.")
+    );
+    assert_eq!(status, 200);
+    assert!(page.contains("<strong>Hard</strong>") && page.contains("wood suits a table."));
+    assert!(page.contains(&format!(r#"data-ask-id="{id}""#)));
+}
+
 #[test]
 fn a_config_file_that_is_missing_or_malformed_stops_the_binary() {
     let dir = std::env::temp_dir();

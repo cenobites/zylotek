@@ -32,7 +32,13 @@ pub async fn app() -> Router {
 pub async fn app_with(auth: Auth) -> Router {
     let db = memory_db().await.unwrap();
 
-    router(build_state(Arc::new(PostgresWoodRepository::new(db)), auth))
+    router(build_state(
+        Arc::new(PostgresWoodRepository::new(db.clone())),
+        Arc::new(
+            zylotek_infrastructure::persistence::asks::repositories::SqliteAskRepository::new(db),
+        ),
+        auth,
+    ))
 }
 
 /// The router served on an ephemeral local port, until `shutdown` is signalled.

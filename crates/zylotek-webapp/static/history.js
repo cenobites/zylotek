@@ -1,20 +1,30 @@
-// The ask history: finished answers kept in this browser only (localStorage), listed in a
-// sidebar on the left, so a visitor can open one again without asking the model twice. The site
-// works without it; with scripts off or storage blocked the sidebar simply stays hidden.
+// The ask history: the questions asked in this browser, listed in a sidebar on the left. Each
+// entry is only an ask's id, its question and when it was asked; the answer itself is stored by
+// the site, so opening an entry (`/asks/<id>`) shows the answer as far as it has got, even one
+// still being worked on. The site works without this script; with scripts off or storage blocked
+// the sidebar simply stays hidden.
 //
-// Every text from storage goes into the page through textContent. The one exception is a saved
-// answer, which is the HTML this site rendered (and escaped) itself, put back as it was; only
-// this origin can write that storage, and the CSP runs no inline script.
+// On an ask's page this script runs as soon as the page starts (it is not deferred), so the
+// ask is remembered at once, before its answer is in, and leaving early does not lose it.
 (() => {
   "use strict";
 
-  const KEY = "zylotek.history.v1";
+  const KEY = "zylotek.history.v2";
   const MAX = 50;
+
+  // The first history kept whole answers, which the site now stores itself.
+  try {
+    localStorage.removeItem("zylotek.history.v1");
+  } catch {
+    // Storage is off; there is nothing to clean up.
+  }
 
   const load = () => {
     try {
       const items = JSON.parse(localStorage.getItem(KEY) || "[]");
-      return Array.isArray(items) ? items.filter((i) => i && i.id && i.question) : [];
+      return Array.isArray(items)
+        ? items.filter((i) => i && typeof i.id === "string" && typeof i.question === "string")
+        : [];
     } catch {
       return [];
     }
@@ -23,9 +33,8 @@
   const store = (items) => {
     try {
       localStorage.setItem(KEY, JSON.stringify(items.slice(0, MAX)));
-      return true;
     } catch {
-      return false;
+      // Storage is full or off: the history just does not grow.
     }
   };
 
@@ -43,28 +52,20 @@
     return node;
   };
 
-  // The question being shown: the one just answered, or the one restored from `?h=`.
-  let current = new URLSearchParams(location.search).get("h");
-
-  // 1. An answer page runs this once it has streamed to the end (the script is deferred):
-  // remember the answer, unless the assistant failed.
-  const answer = document.querySelector("main.answer[data-question]");
-  if (answer && answer.querySelector(".done") && !answer.querySelector(".failed")) {
-    const copy = answer.cloneNode(true);
-    copy.querySelectorAll(".thinking, .writing").forEach((node) => node.remove());
-    const question = answer.dataset.question;
-    const items = load().filter((item) => item.question !== question);
-    current = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    items.unshift({ id: current, question, at: new Date().toISOString(), html: copy.innerHTML });
-    // A full storage drops the oldest answers until the new one fits.
-    while (items.length && !store(items)) items.pop();
+  // 1. An ask's page: remember the ask, once, in the order it was first asked.
+  const page = document.querySelector("main[data-ask-id]");
+  const current = page ? page.dataset.askId : null;
+  if (page && !load().some((item) => item.id === current)) {
+    store([{ id: current, question: page.dataset.question, at: new Date().toISOString() }, ...load()]);
   }
 
-  // 2. The sidebar: newest first, the current question highlighted.
+  // 2. The sidebar: newest first, the current ask highlighted. It comes before the page's main
+  // content, so it is already there when this runs.
   const sidebar = document.querySelector("[data-sidebar]");
   const list = sidebar && sidebar.querySelector("[data-history-list]");
-  const clear = sidebar && sidebar.querySelector("[data-history-clear]");
-  const empty = sidebar && sidebar.querySelector("[data-history-empty]");
+  if (!list) return;
+  const clear = sidebar.querySelector("[data-history-clear]");
+  const empty = sidebar.querySelector("[data-history-empty]");
 
   const render = () => {
     const items = load();
@@ -84,7 +85,7 @@
       });
       const link = element("a", {
         className: "min-w-0 flex-1 truncate px-2 py-1.5 text-fg no-underline",
-        href: `/?h=${encodeURIComponent(item.id)}`,
+        href: `/asks/${encodeURIComponent(item.id)}`,
         textContent: item.question,
         title: `${item.question}\n${when(item.at)}`,
       });
@@ -105,48 +106,29 @@
     clear.hidden = items.length === 0;
   };
 
-  if (list) {
-    clear.addEventListener("click", () => {
-      if (window.confirm(clear.dataset.confirm)) {
-        store([]);
-        render();
-      }
-    });
-    render();
-    sidebar.hidden = false;
-
-    // On a phone the sidebar slides in over the page.
-    const toggle = document.querySelector("[data-sidebar-toggle]");
-    const open = (yes) => {
-      // The stylesheet slides the sidebar in when the body says it is open.
-      if (yes) document.body.dataset.sidebar = "open";
-      else delete document.body.dataset.sidebar;
-      if (toggle) toggle.setAttribute("aria-expanded", String(yes));
-    };
-    if (toggle) {
-      toggle.hidden = false;
-      toggle.addEventListener("click", () => open(document.body.dataset.sidebar !== "open"));
+  clear.addEventListener("click", () => {
+    if (window.confirm(clear.dataset.confirm)) {
+      store([]);
+      render();
     }
-    document.querySelector("[data-sidebar-close]")?.addEventListener("click", () => open(false));
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") open(false);
-    });
-  }
+  });
+  render();
+  sidebar.hidden = false;
 
-  // 3. `/?h=…` on the home page: put a saved answer back in place of the form.
-  const slot = document.querySelector("[data-history-answer]");
-  if (slot && current) {
-    const item = load().find((other) => other.id === current);
-    slot.hidden = false;
-    const note = slot.querySelector("[data-history-note]");
-    if (item) {
-      document.querySelector("[data-home]").hidden = true;
-      note.textContent = `${slot.dataset.savedOn} ${when(item.at)}`;
-      slot.querySelector("[data-history-body]").innerHTML = item.html;
-      document.title = `${item.question} · Zylotek`;
-    } else {
-      // Gone (removed, or another browser's link): say so above the usual form.
-      note.textContent = slot.dataset.missing;
-    }
+  // The sidebar slides in over the page.
+  const toggle = document.querySelector("[data-sidebar-toggle]");
+  const open = (yes) => {
+    // The stylesheet slides the sidebar in when the body says it is open.
+    if (yes) document.body.dataset.sidebar = "open";
+    else delete document.body.dataset.sidebar;
+    if (toggle) toggle.setAttribute("aria-expanded", String(yes));
+  };
+  if (toggle) {
+    toggle.hidden = false;
+    toggle.addEventListener("click", () => open(document.body.dataset.sidebar !== "open"));
   }
+  document.querySelector("[data-sidebar-close]")?.addEventListener("click", () => open(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") open(false);
+  });
 })();

@@ -2,13 +2,15 @@
 <html lang="{{ t.html_lang }}">
 <head>
 {% include "head.html" %}
+{% if refresh %}<meta http-equiv="refresh" content="3">{% endif %}
 <title>{{ t.answer_title }} · Zylotek</title>
 </head>
 <body class="group/body bg-bg font-sans leading-relaxed text-fg [--page:84rem]">
 {% include "nav.html" %}
 <div>
 {% include "sidebar.html" %}
-<main class="group/answer mx-auto w-full max-w-(--page) p-4" data-question="{{ question }}">
+<main class="group/answer mx-auto w-full max-w-(--page) p-4" data-ask-id="{{ id }}" data-question="{{ question }}">
+<script src="/static/history.js"></script>
 <h1>{{ t.answer_heading }}</h1>
 <p class="question text-lg text-muted italic">“{{ question }}”</p>
 <div class="thinking card group-has-[.results]/answer:hidden" role="status" aria-live="polite">

@@ -23,6 +23,14 @@ struct Cli {
     #[arg(long, env = "ZYLOTEK_ASSISTANT_TOKEN", hide_env_values = true)]
     assistant_token: Option<String>,
 
+    /// The OAuth client id the site opens asks with (scope `asks:write`).
+    #[arg(long, env = "ZYLOTEK_WEBAPP_API_CLIENT_ID")]
+    api_client_id: Option<String>,
+
+    /// That client's secret.
+    #[arg(long, env = "ZYLOTEK_WEBAPP_API_CLIENT_SECRET", hide_env_values = true)]
+    api_client_secret: Option<String>,
+
     /// Address to listen on.
     /// [default: 127.0.0.1:3000]
     #[arg(long, env = "ZYLOTEK_WEBAPP_LISTEN")]
@@ -55,6 +63,10 @@ async fn main() -> ExitCode {
         api_url: cli.api_url.unwrap_or(file.api.url),
         assistant_url: cli.assistant_url.unwrap_or(file.assistant.url),
         assistant_token: cli.assistant_token.or(file.assistant.token),
+        api_client: cli
+            .api_client_id
+            .or(file.webapp.api_client_id)
+            .zip(cli.api_client_secret.or(file.webapp.api_client_secret)),
         listen: cli.listen.unwrap_or(file.webapp.listen),
     })
     .await;

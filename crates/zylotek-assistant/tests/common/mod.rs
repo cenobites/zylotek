@@ -39,7 +39,10 @@ impl Drop for Api {
 pub async fn api_with(woods: &[(&str, f64)]) -> Api {
     let db = memory_db().await.unwrap();
     let app = router(build_state(
-        Arc::new(PostgresWoodRepository::new(db)),
+        Arc::new(PostgresWoodRepository::new(db.clone())),
+        Arc::new(
+            zylotek_infrastructure::persistence::asks::repositories::SqliteAskRepository::new(db),
+        ),
         testing::auth(),
     ));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -4,6 +4,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use crate::{
+    asks::Asks,
     clients::{ApiClient, AssistantClient},
     pages::{AppState, router},
 };
@@ -12,16 +13,24 @@ pub struct Config {
     pub api_url: String,
     pub assistant_url: String,
     pub assistant_token: Option<String>,
+    /// The OAuth client the site opens asks with: `(id, secret)`.
+    pub api_client: Option<(String, String)>,
     pub listen: SocketAddr,
 }
 
 pub async fn run(config: Config) -> std::io::Result<()> {
+    let mut api = ApiClient::new(&config.api_url);
+    if let Some((id, secret)) = config.api_client {
+        api = api.with_credentials(id, secret);
+    }
+    let api = Arc::new(api);
+    let assistant = Arc::new(AssistantClient::new(
+        &config.assistant_url,
+        config.assistant_token,
+    ));
     let state = AppState {
-        api: Arc::new(ApiClient::new(&config.api_url)),
-        assistant: Arc::new(AssistantClient::new(
-            &config.assistant_url,
-            config.assistant_token,
-        )),
+        asks: Arc::new(Asks::new(api.clone(), assistant)),
+        api,
     };
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!("website listening on http://{}", listener.local_addr()?);

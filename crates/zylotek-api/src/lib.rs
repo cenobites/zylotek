@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
+use zylotek_application::asks::{AskFacade, SystemClock};
 use zylotek_application::woods::{
     create_wood::CreateWood, delete_wood::DeleteWood, facade::WoodFacade, get_wood::GetWood,
     handlers::WoodEventHandler, list_woods::ListWoods, update_wood::UpdateWood,
 };
+use zylotek_domain::asks::repositories::AskRepository;
 use zylotek_domain::woods::{
     events::WoodEvent,
     repositories::WoodRepository,
@@ -13,6 +15,7 @@ use zylotek_infrastructure::event_bus::tokio::{TokioEventPublisher, run_event_ha
 
 use crate::{auth::Auth, state::AppState};
 
+pub mod asks;
 pub mod auth;
 pub mod errors;
 pub mod middleware;
@@ -26,11 +29,15 @@ pub use server::serve;
 #[cfg(test)]
 mod test_support;
 
-/// Wires the use cases and event handler on top of `wood_repository`, and guards the write
+/// Wires the use cases and event handler on top of the repositories, and guards the write
 /// routes with `auth`.
 ///
 /// Spawns the event handler, so it must be called inside a Tokio runtime.
-pub fn build_state(wood_repository: Arc<dyn WoodRepository>, auth: Auth) -> AppState {
+pub fn build_state(
+    wood_repository: Arc<dyn WoodRepository>,
+    ask_repository: Arc<dyn AskRepository>,
+    auth: Auth,
+) -> AppState {
     let wood_event_publisher = Arc::new(TokioEventPublisher::<WoodEvent>::new(1024));
     let wood_event_handler = WoodEventHandler::new();
 
@@ -56,6 +63,7 @@ pub fn build_state(wood_repository: Arc<dyn WoodRepository>, auth: Auth) -> AppS
 
     AppState {
         woods: Arc::new(wood_facade),
+        asks: Arc::new(AskFacade::new(ask_repository, Arc::new(SystemClock))),
         auth,
     }
 }
@@ -76,6 +84,7 @@ mod tests {
     async fn build_state_wires_a_working_stack_with_a_live_event_handler() {
         let state = build_state(
             Arc::new(InMemoryWoodRepository::new()),
+            Arc::new(zylotek_domain::testing::InMemoryAskRepository::new()),
             crate::auth::testing::auth(),
         );
         let router = router(state);

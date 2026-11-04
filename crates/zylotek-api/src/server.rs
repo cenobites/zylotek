@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use tokio::{net::TcpListener, signal};
-use zylotek_infrastructure::persistence::{build_db, woods::repositories::PostgresWoodRepository};
+use zylotek_infrastructure::persistence::{
+    asks::repositories::SqliteAskRepository, build_db, woods::repositories::PostgresWoodRepository,
+};
 
 use crate::{auth::Auth, build_state, errors::ApiError, router::router};
 
@@ -16,7 +18,11 @@ async fn run(database_url: &str, auth: Auth) -> anyhow::Result<()> {
              with `zylotek-cli auth keygen` and `zylotek-cli auth client create`"
         );
     }
-    let state = build_state(Arc::new(PostgresWoodRepository::new(db)), auth);
+    let state = build_state(
+        Arc::new(PostgresWoodRepository::new(db.clone())),
+        Arc::new(SqliteAskRepository::new(db)),
+        auth,
+    );
 
     let app = router(state);
     let listener = TcpListener::bind("0.0.0.0:8080").await?;

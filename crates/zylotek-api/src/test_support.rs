@@ -10,12 +10,13 @@ use axum::{
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
+use zylotek_application::asks::{AskFacade, SystemClock};
 use zylotek_application::woods::{
     create_wood::CreateWood, delete_wood::DeleteWood, facade::WoodFacade, get_wood::GetWood,
     list_woods::ListWoods, update_wood::UpdateWood,
 };
 use zylotek_domain::{
-    testing::{InMemoryWoodRepository, full_details},
+    testing::{InMemoryAskRepository, InMemoryWoodRepository, full_details},
     woods::{
         events::WoodEvent,
         services::{WoodCreationService, WoodUpdateService},
@@ -35,6 +36,7 @@ use crate::{
 pub(crate) struct TestApp {
     pub router: Router,
     pub repository: Arc<InMemoryWoodRepository>,
+    pub asks: Arc<AskFacade>,
 }
 
 pub(crate) fn app() -> TestApp {
@@ -73,12 +75,19 @@ pub(crate) fn app_with_auth(
         DeleteWood::new(publisher, repository.clone()),
     );
 
+    let asks = Arc::new(AskFacade::new(
+        Arc::new(InMemoryAskRepository::new()),
+        Arc::new(SystemClock),
+    ));
+
     TestApp {
         router: router(AppState {
             woods: Arc::new(facade),
+            asks: asks.clone(),
             auth,
         }),
         repository,
+        asks,
     }
 }
 

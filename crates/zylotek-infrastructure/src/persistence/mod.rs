@@ -1,5 +1,6 @@
 use crate::errors::InfrastructureError;
 
+pub mod asks;
 pub mod errors;
 mod migrations;
 pub mod woods;
@@ -18,15 +19,23 @@ pub async fn build_db(database_uri: &str) -> Result<toasty::Db, InfrastructureEr
         .connect(database_uri)
         .await?;
 
-    if !has_schema(&db).await {
+    if !has_woods(&db).await {
         db.push_schema().await?;
+    } else if !has_asks(&db).await {
+        // A database made before asks existed: add their table and leave the rest alone.
+        toasty::Db::builder()
+            .models(toasty::models!(asks::models::Ask))
+            .connect(database_uri)
+            .await?
+            .push_schema()
+            .await?;
     }
 
     Ok(db)
 }
 
 /// `push_schema` fails on tables that already exist, so probe for them first.
-async fn has_schema(db: &toasty::Db) -> bool {
+async fn has_woods(db: &toasty::Db) -> bool {
     let mut db = db.clone();
 
     woods::models::Wood::all()
@@ -34,6 +43,12 @@ async fn has_schema(db: &toasty::Db) -> bool {
         .exec(&mut db)
         .await
         .is_ok()
+}
+
+async fn has_asks(db: &toasty::Db) -> bool {
+    let mut db = db.clone();
+
+    asks::models::Ask::all().count().exec(&mut db).await.is_ok()
 }
 
 impl From<toasty::Error> for InfrastructureError {
@@ -81,6 +96,47 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn a_database_from_before_asks_gets_their_table_and_keeps_its_woods() {
+        let dir = tempfile::tempdir().unwrap();
+        let uri = format!("sqlite:{}", dir.path().join("old.db").display());
+        // Only the woods table, as every database made before asks existed.
+        let old = toasty::Db::builder()
+            .models(toasty::models!(woods::models::Wood))
+            .connect(&uri)
+            .await
+            .unwrap();
+        old.push_schema().await.unwrap();
+        {
+            use zylotek_domain::woods::repositories::WoodRepository;
+            woods::repositories::PostgresWoodRepository::new(old)
+                .save(&zylotek_domain::testing::wood(
+                    "Aroeira",
+                    "Myracrodruon urundeuva",
+                ))
+                .await
+                .unwrap();
+        }
+
+        let upgraded = build_db(&uri).await.unwrap();
+
+        assert!(has_asks(&upgraded).await, "the asks table was added");
+        let mut db = upgraded.clone();
+        assert_eq!(
+            woods::models::Wood::all()
+                .count()
+                .exec(&mut db)
+                .await
+                .unwrap(),
+            1
+        );
+        let again = build_db(&uri).await.unwrap();
+        assert!(
+            has_woods(&again).await && has_asks(&again).await,
+            "reopening changes nothing"
+        );
     }
 
     #[test]

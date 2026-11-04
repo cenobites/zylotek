@@ -277,3 +277,40 @@ impl WoodRepository for InMemoryWoodRepository {
         Ok(())
     }
 }
+
+/// An [`AskRepository`](crate::asks::repositories::AskRepository) in memory.
+#[derive(Default)]
+pub struct InMemoryAskRepository {
+    asks: Mutex<HashMap<crate::asks::entities::AskId, crate::asks::entities::Ask>>,
+}
+
+impl InMemoryAskRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::asks::repositories::AskRepository for InMemoryAskRepository {
+    async fn find_by_id(
+        &self,
+        id: crate::asks::entities::AskId,
+    ) -> Result<Option<crate::asks::entities::Ask>, RepositoryError> {
+        Ok(self.asks.lock().unwrap().get(&id).cloned())
+    }
+
+    async fn save(
+        &self,
+        ask: &crate::asks::entities::Ask,
+    ) -> Result<crate::asks::entities::Ask, RepositoryError> {
+        self.asks.lock().unwrap().insert(ask.id(), ask.clone());
+        Ok(ask.clone())
+    }
+
+    async fn update(
+        &self,
+        ask: &crate::asks::entities::Ask,
+    ) -> Result<crate::asks::entities::Ask, RepositoryError> {
+        self.save(ask).await
+    }
+}

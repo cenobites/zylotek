@@ -7,11 +7,14 @@
 use std::sync::OnceLock;
 
 use crate::auth::{
-    Auth, AuthConfig, ClientRegistry, DEFAULT_ISSUER, WRITE_SCOPE, generate_signing_key_pem,
+    ASKS_WRITE_SCOPE, Auth, AuthConfig, ClientRegistry, DEFAULT_ISSUER, WRITE_SCOPE,
+    generate_signing_key_pem,
 };
 
 pub const WRITER: &str = "test-writer";
 pub const READER: &str = "test-reader";
+/// A client that may open asks, as the web app does.
+pub const ASKER: &str = "test-asker";
 /// A scope the API does not use, to test that a token with the wrong scope is refused.
 pub const READ_SCOPE: &str = "woods:read";
 
@@ -20,6 +23,8 @@ struct Fixture {
     writer_secret: String,
     write_token: String,
     read_token: String,
+    asker_secret: String,
+    asks_token: String,
 }
 
 fn fixture() -> &'static Fixture {
@@ -33,7 +38,11 @@ fn fixture() -> &'static Fixture {
         clients
             .create(READER, &[READ_SCOPE.to_owned()])
             .expect("a valid test client");
+        let asker_secret = clients
+            .create(ASKER, &[ASKS_WRITE_SCOPE.to_owned()])
+            .expect("a valid test client");
         let writer = clients.get(WRITER).cloned().expect("just created");
+        let asker = clients.get(ASKER).cloned().expect("just created");
         let reader = clients.get(READER).cloned().expect("just created");
 
         let auth = Auth::new(AuthConfig::new(
@@ -53,6 +62,8 @@ fn fixture() -> &'static Fixture {
         Fixture {
             write_token: issue(&writer, WRITE_SCOPE),
             read_token: issue(&reader, READ_SCOPE),
+            asks_token: issue(&asker, ASKS_WRITE_SCOPE),
+            asker_secret,
             writer_secret,
             auth,
         }
@@ -77,4 +88,14 @@ pub fn read_only_token() -> &'static str {
 /// The id and secret of the writer client, for exercising the token endpoint.
 pub fn writer_credentials() -> (&'static str, &'static str) {
     (WRITER, &fixture().writer_secret)
+}
+
+/// A valid access token with the asks scope only.
+pub fn asks_token() -> &'static str {
+    &fixture().asks_token
+}
+
+/// The id and secret of the asker client, for a service that fetches its own tokens.
+pub fn asker_credentials() -> (&'static str, &'static str) {
+    (ASKER, &fixture().asker_secret)
 }

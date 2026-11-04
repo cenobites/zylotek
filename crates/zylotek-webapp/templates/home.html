@@ -1,11 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ t.home_title }}{% endblock %}
 {% block content %}
-<div data-history-answer hidden data-saved-on="{{ t.history_saved_on }}" data-missing="{{ t.history_missing }}">
-<p class="text-muted" data-history-note></p>
-<div data-history-body></div>
-</div>
-<div data-home>
 <section>
 <h1 class="text-3xl">{{ t.home_heading }}</h1>
 <p class="max-w-3xl text-lg text-muted">{{ t.home_intro }}</p>
@@ -25,5 +20,4 @@
 <a class="card m-0 flex flex-col gap-1 text-fg no-underline hover:border-accent" href="/woods"><strong>{{ t.compare_title }}</strong><span class="text-muted">{{ t.home_compare_text }}</span></a>
 </div>
 <p class="mt-4 text-muted">{{ t.home_tagline }}</p>
-</div>
 {% endblock %}

@@ -4,7 +4,7 @@ use axum::{
 };
 
 use crate::{
-    auth::{Auth, Claims, WRITE_SCOPE},
+    auth::{ASKS_WRITE_SCOPE, Auth, Claims, WRITE_SCOPE},
     errors::ApiError,
     state::AppState,
 };
@@ -32,6 +32,30 @@ impl FromRequestParts<AppState> for WriteAccess {
         let claims = state
             .auth
             .authorize(parts.headers.get(AUTHORIZATION), WRITE_SCOPE)?;
+
+        Ok(Self {
+            client_id: claims.client_id,
+        })
+    }
+}
+
+/// Like [`WriteAccess`], for the routes that open asks and record their progress: the token
+/// must carry the asks scope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AskWriteAccess {
+    pub client_id: String,
+}
+
+impl FromRequestParts<AppState> for AskWriteAccess {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let claims = state
+            .auth
+            .authorize(parts.headers.get(AUTHORIZATION), ASKS_WRITE_SCOPE)?;
 
         Ok(Self {
             client_id: claims.client_id,

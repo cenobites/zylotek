@@ -17,6 +17,10 @@ pub enum ApiError {
     #[error("{0}")]
     BadRequest(String),
 
+    /// The request is valid but does not fit the resource's current state.
+    #[error("{0}")]
+    Conflict(String),
+
     /// No valid access token. `challenge` becomes the `WWW-Authenticate` header (RFC 6750).
     #[error("{message}")]
     Unauthorized { message: String, challenge: String },
@@ -54,6 +58,8 @@ impl IntoResponse for ApiError {
             }
 
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "BAD_REQUEST"),
+
+            ApiError::Conflict(_) => (StatusCode::CONFLICT, "CONFLICT"),
 
             ApiError::Unauthorized { .. } => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED"),
 
@@ -115,6 +121,12 @@ mod tests {
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "UNPROCESSABLE_ENTITY",
                 "invalid",
+            ),
+            (
+                ApiError::Conflict("too late".into()),
+                StatusCode::CONFLICT,
+                "CONFLICT",
+                "too late",
             ),
             (
                 ApiError::BadRequest("bad".into()),

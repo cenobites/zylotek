@@ -36,7 +36,7 @@ zylotek-cli ──► zylotek-sync ───────────────
 
 ### `crates/zylotek-domain`
 
-The model. Organised per aggregate (only `woods/` today):
+The model. Organised per aggregate: `woods/`, and `asks/` (below).
 
 - `entities` — the `Wood` aggregate root and `WoodId`. A `Wood` is its identity
   (`WoodName`, `ScientificName`) plus a `WoodDetails` value object. Fields are private;
@@ -59,6 +59,14 @@ The model. Organised per aggregate (only `woods/` today):
 `thiserror` and `uuid`. Any value that reaches a `Wood` has passed through a value-object
 constructor, so an invalid wood cannot be built — not from HTTP, storage, or scraping.
 
+`asks/` is the second aggregate: an `Ask` is one question kept as a record while it is
+answered in the background. Its `AskState` only moves forward (queued → understanding → ranked
+→ explaining → answered, or to failed from any unfinished state; ranked → answered when there is
+nothing to explain), and every step is a method that refuses a transition the machine does not
+allow. The ranking is kept whole as the assistant's JSON document (`Ranking`): its shape belongs
+to the assistant's contract, not the domain. Times are `Timestamp`s the caller passes in; the
+domain never reads a clock. `AskRepository` is the port (find, save, update).
+
 ### `crates/zylotek-application`
 
 Use cases, one struct per operation with a single `execute`: `CreateWood`, `GetWood`,
@@ -74,6 +82,9 @@ stored one through `UpdateWood` with the stored details filling whatever the new
 alone, so importing twice is harmless; a name repeated within the batch keeps its first
 occurrence; any other failure is recorded without stopping the batch. It returns an
 `ImportReport` (created, updated, unchanged, duplicates, failed).
+
+`asks::AskFacade` opens an ask, reads one and records a `Progress` step, with a `Clock` it is
+given (`SystemClock` in production) so tests can fix the time.
 
 `WoodFacade` is the entry point adapters call. `WoodEventHandler` handles every
 `WoodEvent`; it currently only logs. All use cases return `WoodUseCaseError`
@@ -105,6 +116,10 @@ without Toasty or the domain.
 **Boundary to note:** the event-bus *traits* live in infrastructure, not domain, so
 `zylotek-application` depends on `zylotek-infrastructure`.
 
+`persistence/asks/` stores asks in their own `asks` table (`SqliteAskRepository`). `build_db`
+creates the whole schema on a new database, and adds the `asks` table to a database made before
+asks existed, leaving its woods alone.
+
 ### `crates/zylotek-api`
 
 The axum HTTP binary and the **composition root**: `main.rs` is the only place where
@@ -117,7 +132,11 @@ data take as their first parameter. Reads are public; writes need a Bearer token
 `woods:write` scope; with OAuth unconfigured, writes answer `503` (fail closed). Tokens are
 EdDSA-signed JWTs (RFC 9068); the verifier fixes the algorithm and looks keys up in the
 published JWKS, so an external authorization server could replace the built-in one without
-touching the routes. `woods/handlers.rs` holds `From<WoodUseCaseError> for ApiError`, where
+touching the routes. `/api/v1/asks` serves asks: `GET /{id}` is public (the id is the key), while `POST /` (open)
+and `POST /{id}/progress` (one step) need the `AskWriteAccess` extractor, i.e. a token with the
+`asks:write` scope. That scope does not allow changing woods, and `woods:write` does not allow
+writing asks. A step the state machine refuses answers `409 Conflict`.
+`woods/handlers.rs` holds `From<WoodUseCaseError> for ApiError`, where
 errors become status codes: `NotFound` → 404, invalid id → 400, other domain errors → 422,
 persistence/event failures → 500.
 
@@ -209,10 +228,20 @@ The website, on its own port (3000). Pages are rendered on the server with Askam
 (`templates/`) and need no script: the question is a plain form POST, the comparison a plain
 GET with repeated `id` parameters. It reads the catalogue from `zylotek-api` and asks
 `zylotek-assistant` for recommendations through `clients.rs`, both using the contract types, so
-it never touches the database or the model. Asking is streamed: the page's top (understanding,
-criteria, ranked cards) is sent as soon as the ranking exists, the explanation follows as the
-model writes it, and the closing markup comes last, as one chunked HTML response with no
-script; if the explanation breaks, the page ends with a note instead of an error.
+it never touches the database or the model.
+
+Asking happens in the background (`asks.rs`). `POST /ask` opens an ask through the API (with
+its own OAuth client, scope `asks:write`, configured as `[webapp] api_client_id/_secret`),
+starts a job and redirects to `/asks/{id}`. The job drives the assistant and records each step
+(started, ranked, explaining, the explanation in batches, answered or failed), so the answer is
+stored even if nobody waits for it. While the job runs, `/asks/{id}` follows it live through a
+`watch` snapshot and streams: the thinking panel, the ranked cards once they exist, the
+explanation as it is written, then the closing markup, as one chunked HTML response. Otherwise
+the page renders the stored record; one still unfinished reloads itself every few seconds
+(`<meta http-equiv="refresh">`, no script), and one whose record has not moved for five minutes
+is shown as interrupted. The history sidebar (`static/history.js`) keeps only each ask's id,
+question and date in the browser and links to `/asks/{id}`; it runs as soon as an ask's page
+starts, so leaving early still remembers the ask.
 `view.rs` turns contract types into display
 strings (templates hold no logic), `pages.rs` has the routes. A backend failure becomes a
 friendly error page; the technical detail goes to the log only. Askama escapes every value,

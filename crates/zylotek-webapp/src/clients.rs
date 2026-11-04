@@ -9,7 +9,9 @@ use reqwest::RequestBuilder;
 use serde::de::DeserializeOwned;
 use zylotek_contracts::{
     ErrorResponse,
+    asks::{AskProgressRequest, AskRecordResponse, CreateAskRequest},
     assistant::{AskRequest, AskResponse, events},
+    oauth::{CLIENT_CREDENTIALS, TokenResponse},
     woods::{WoodPageResponse, WoodResponse},
 };
 
@@ -61,6 +63,11 @@ fn status_error(service: &'static str, status: u16, text: &str) -> BackendError 
     }
 }
 
+/// A request body. The contract types are plain data, so writing them out cannot fail.
+fn json(value: &impl serde::Serialize) -> String {
+    serde_json::to_string(value).expect("contract types always serialize")
+}
+
 /// The status and body of the reply, or why none came.
 async fn exchange(request: RequestBuilder) -> Result<(u16, String), reqwest::Error> {
     let response = request.send().await?;
@@ -86,10 +93,17 @@ async fn call<T: DeserializeOwned>(
     serde_json::from_str(&text).map_err(|error| malformed(service, error))
 }
 
+/// The scope the web app asks for: opening asks and recording their steps, nothing else.
+const ASKS_SCOPE: &str = "asks:write";
+/// A token is replaced this long before it expires, so a request never carries a stale one.
+const TOKEN_MARGIN: Duration = Duration::from_secs(60);
+
 pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
     catalogue: tokio::sync::Mutex<Option<(Instant, Arc<Vec<WoodResponse>>)>>,
+    credentials: Option<(String, String)>,
+    token: tokio::sync::Mutex<Option<(String, Instant)>>,
 }
 
 impl ApiClient {
@@ -98,7 +112,98 @@ impl ApiClient {
             client: client(API_TIMEOUT),
             base_url: base_url.trim_end_matches('/').to_owned(),
             catalogue: tokio::sync::Mutex::new(None),
+            credentials: None,
+            token: tokio::sync::Mutex::new(None),
         }
+    }
+
+    /// The OAuth client the web app writes asks with.
+    pub fn with_credentials(mut self, client_id: String, client_secret: String) -> Self {
+        self.credentials = Some((client_id, client_secret));
+        self
+    }
+
+    /// A bearer token for the asks routes, from the client-credentials grant. Reused until a
+    /// minute before it expires.
+    async fn token(&self) -> Result<String, BackendError> {
+        let Some((client_id, client_secret)) = &self.credentials else {
+            return Err(BackendError::Status {
+                service: API,
+                status: 401,
+                message: "the web app has no API client credentials".to_owned(),
+            });
+        };
+        let mut cached = self.token.lock().await;
+        if let Some((token, _)) = cached.as_ref().filter(|(_, until)| Instant::now() < *until) {
+            return Ok(token.clone());
+        }
+
+        let body = form_urlencoded::Serializer::new(String::new())
+            .append_pair("grant_type", CLIENT_CREDENTIALS)
+            .append_pair("client_id", client_id)
+            .append_pair("client_secret", client_secret)
+            .append_pair("scope", ASKS_SCOPE)
+            .finish();
+        let request = self
+            .client
+            .post(format!("{}/oauth/token", self.base_url))
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body(body);
+        let granted: TokenResponse = call(API, request).await?;
+        let lifetime = Duration::from_secs(granted.expires_in).saturating_sub(TOKEN_MARGIN);
+        *cached = Some((granted.access_token.clone(), Instant::now() + lifetime));
+
+        Ok(granted.access_token)
+    }
+
+    /// Opens an ask: stored, queued, and given its id.
+    pub async fn create_ask(&self, question: &str) -> Result<AskRecordResponse, BackendError> {
+        let token = self.token().await?;
+        let request = self
+            .client
+            .post(format!("{}/api/v1/asks", self.base_url))
+            .bearer_auth(token)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(json(&CreateAskRequest {
+                question: question.to_owned(),
+            }));
+
+        call(API, request).await
+    }
+
+    /// An ask as stored. Reading needs no token.
+    pub async fn ask(&self, id: &str) -> Result<AskRecordResponse, BackendError> {
+        if !is_id(id) {
+            return Err(BackendError::NotFound);
+        }
+        let request = self
+            .client
+            .get(format!("{}/api/v1/asks/{id}", self.base_url));
+
+        match call(API, request).await {
+            Err(BackendError::Status { status: 404, .. }) => Err(BackendError::NotFound),
+            other => other,
+        }
+    }
+
+    /// Records one step of answering an ask.
+    pub async fn record(
+        &self,
+        id: &str,
+        progress: &AskProgressRequest,
+    ) -> Result<AskRecordResponse, BackendError> {
+        let token = self.token().await?;
+        let request = self
+            .client
+            .post(format!("{}/api/v1/asks/{id}/progress", self.base_url))
+            .bearer_auth(token)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(json(progress));
+
+        call(API, request).await
     }
 
     /// Every wood, for searching and filtering in memory. Fetched page by page, then reused for
@@ -360,6 +465,91 @@ mod tests {
 
         assert_eq!((page.total, page.items.len()), (21, 1));
         assert_eq!(one.name, "Cedro");
+    }
+
+    fn ask_json(id: &str, state: &str) -> serde_json::Value {
+        json!({"id": id, "question": "a table", "state": state, "answer": null,
+               "explanation": "", "explanation_complete": false, "failure": null,
+               "created_at": 1, "updated_at": 1})
+    }
+
+    #[tokio::test]
+    async fn asks_are_written_with_one_reused_client_credentials_token() {
+        let server = MockServer::start().await;
+        Mock::given(path("/oauth/token"))
+            .and(wiremock::matchers::body_string_contains("grant_type=client_credentials"))
+            .and(wiremock::matchers::body_string_contains("client_id=webapp"))
+            .and(wiremock::matchers::body_string_contains("scope=asks%3Awrite"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "tok", "token_type": "Bearer", "expires_in": 3600, "scope": "asks:write",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(path("/api/v1/asks"))
+            .and(wiremock::matchers::header("authorization", "Bearer tok"))
+            .and(wiremock::matchers::body_string_contains("a table"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(ask_json("a", "queued")))
+            .mount(&server)
+            .await;
+        Mock::given(path("/api/v1/asks/a/progress"))
+            .and(wiremock::matchers::header("authorization", "Bearer tok"))
+            .and(wiremock::matchers::body_string_contains(
+                r#""step":"started""#,
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ask_json("a", "understanding")))
+            .mount(&server)
+            .await;
+        Mock::given(path("/api/v1/asks/a"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(ask_json("a", "understanding")))
+            .mount(&server)
+            .await;
+        let api = ApiClient::new(&server.uri()).with_credentials("webapp".into(), "s3cret".into());
+
+        let created = api.create_ask("a table").await.unwrap();
+        let started = api.record("a", &AskProgressRequest::Started).await.unwrap();
+        let read = api.ask("a").await.unwrap();
+
+        assert_eq!(created.id, "a");
+        assert_eq!(
+            started.state,
+            zylotek_contracts::asks::AskStateSchema::Understanding
+        );
+        assert_eq!(read, started);
+    }
+
+    #[tokio::test]
+    async fn without_credentials_or_with_a_refused_token_nothing_is_written() {
+        let server = MockServer::start().await;
+        Mock::given(path("/oauth/token"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(
+                json!({"error": "invalid_client", "error_description": "unknown client"}),
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(path("/api/v1/asks/gone"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let anonymous = ApiClient::new(&server.uri());
+        let refused = ApiClient::new(&server.uri()).with_credentials("x".into(), "y".into());
+
+        let none = anonymous.create_ask("a table").await.unwrap_err();
+        let bad = refused.create_ask("a table").await.unwrap_err();
+        let gone = anonymous.ask("gone").await.unwrap_err();
+        let malformed = anonymous.ask("../x").await.unwrap_err();
+
+        assert!(
+            matches!(none, BackendError::Status { status: 401, ref message, .. } if message.contains("credentials"))
+        );
+        assert!(matches!(bad, BackendError::Status { status: 401, .. }));
+        assert!(matches!(gone, BackendError::NotFound));
+        assert!(matches!(malformed, BackendError::NotFound));
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            2,
+            "one refused token request, one read; nothing for the bad id"
+        );
     }
 
     #[tokio::test]

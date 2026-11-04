@@ -1,8 +1,12 @@
 //! The pages: ask a question, browse woods, read one, compare several. Rendered on the
-//! server; the browser needs no script, and the one there is (`static/history.js`) only adds
-//! the ask history, kept in the browser's storage. The answer page streams: a thinking panel at once,
-//! the ranking when it is ready, then the explanation as it is written, and CSS `:has()`
-//! hides each progress note once what it waits for has arrived.
+//! server; the browser needs no script, and the scripts there are only add the history sidebar
+//! and the comparison tray.
+//!
+//! Asking opens an ask that is answered in the background (`asks.rs`) and sends the visitor to
+//! its page, `/asks/{id}`. While this process is answering it, that page streams: a thinking
+//! panel at once, the ranking when it is ready, then the explanation as it is written, and CSS
+//! `:has()` hides each progress note once what it waits for has arrived. Later, or from another
+//! process, the page shows what is stored, and refreshes itself until the ask is finished.
 
 use std::{
     sync::Arc,
@@ -16,21 +20,27 @@ use axum::{
     extract::{FromRequestParts, Path, Query, RawQuery, Request, State},
     http::{StatusCode, header, request::Parts},
     middleware::Next,
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use futures::Stream;
 use serde::Deserialize;
 use std::convert::Infallible;
+use tokio::sync::watch;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     compression::CompressionLayer, limit::RequestBodyLimitLayer, timeout::TimeoutLayer,
     trace::TraceLayer,
 };
+use zylotek_contracts::{
+    asks::{AskRecordResponse, AskStateSchema},
+    assistant::AskResponse,
+};
 
 use crate::{
+    asks::{Asks, Snapshot},
     browse::{Entry, Query as BrowseQuery},
-    clients::{ApiClient, AssistantClient, LiveAnswer, Piece, is_id},
+    clients::{ApiClient, is_id},
     error::BackendError,
     i18n::{Lang, Strings},
     view::{self, BrowseView, CardView, CompareColumn, CompareRow, WoodView},
@@ -43,13 +53,14 @@ const MAX_QUESTION_CHARS: usize = 1000;
 #[derive(Clone)]
 pub struct AppState {
     pub api: Arc<ApiClient>,
-    pub assistant: Arc<AssistantClient>,
+    pub asks: Arc<Asks>,
 }
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(home))
         .route("/ask", post(ask))
+        .route("/asks/{id}", get(ask_page))
         .route("/woods", get(woods))
         .route("/woods/{id}", get(wood))
         .route("/compare", get(compare))
@@ -164,7 +175,10 @@ struct HomePage {
 #[template(path = "answer_shell.html")]
 struct AnswerShell {
     t: &'static Strings,
+    id: String,
     question: String,
+    /// Reload every few seconds: the ask is being answered somewhere this page cannot follow.
+    refresh: bool,
 }
 
 /// The ranking, up to the opening of the box the explanation streams into.
@@ -186,6 +200,15 @@ struct AnswerBottom {
     t: &'static Strings,
     has_explanation_box: bool,
     ranked: String,
+    /// The explanation is over; the page marks itself done so the writing note goes away.
+    finished: bool,
+}
+
+/// What closes a page whose ask has not been ranked yet.
+#[derive(Template)]
+#[template(path = "answer_pending.html")]
+struct AnswerPending {
+    t: &'static Strings,
 }
 
 /// What closes the page when the assistant could not answer.
@@ -249,6 +272,7 @@ fn render<T: Template>(template: T) -> Result<Html<String>, PageError> {
 pub enum Subject {
     Page,
     Wood,
+    Ask,
 }
 
 /// Why a comparison cannot be made; the wording depends on the visitor's language.
@@ -295,6 +319,7 @@ impl IntoResponse for PageError {
                 text.could_not_find(match what {
                     Subject::Page => text.that_page,
                     Subject::Wood => text.that_wood,
+                    Subject::Ask => text.that_ask,
                 }),
             ),
             PageError::BadRequest(message) => {
@@ -330,7 +355,7 @@ impl IntoResponse for PageError {
 }
 
 /// What a visitor is told; the technical detail goes to the log only.
-fn friendly(error: &BackendError, text: &Strings) -> String {
+pub(crate) fn friendly(error: &BackendError, text: &Strings) -> String {
     match error {
         BackendError::Unreachable { service, .. } => text.unreachable(service),
         BackendError::Status {
@@ -382,32 +407,123 @@ async fn ask(
         .into_response());
     }
 
-    // The page starts at once, so the visitor sees it thinking; from here on a failure is
-    // told inside the page rather than as an error status.
-    let text = lang.strings();
-    let shell = AnswerShell {
-        t: text,
-        question: question.clone(),
+    let id = state.asks.open(&question, lang).await?;
+
+    // See Other: reloading the answer page then reads it again instead of asking again.
+    Ok(Redirect::to(&format!("/asks/{id}")).into_response())
+}
+
+/// An unfinished ask whose record has not moved for this long is shown as interrupted: it is
+/// longer than the assistant is given to answer, so whatever was answering it has stopped.
+const STALE_AFTER_MS: u64 = 5 * 60 * 1000;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64)
+}
+
+/// One ask's page. Followed live while this process answers it; otherwise what is stored.
+async fn ask_page(
+    lang: Lang,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, PageError> {
+    if !is_id(&id) {
+        return Err(PageError::NotFound(Subject::Ask));
     }
-    .render()
-    .map_err(|error| PageError::Internal(error.to_string()))?;
+    let text = lang.strings();
+    if let Some(live) = state.asks.follow(&id) {
+        let question = live.borrow().question.clone();
+        let shell = shell(text, &id, question, false)?;
+
+        return Ok((
+            [
+                (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CACHE_CONTROL, "no-store"),
+                (header::HeaderName::from_static("x-accel-buffering"), "no"),
+            ],
+            Body::from_stream(follow(shell, live, lang)),
+        )
+            .into_response());
+    }
+
+    let record = state.asks.get(&id).await.map_err(|error| match error {
+        BackendError::NotFound => PageError::NotFound(Subject::Ask),
+        other => PageError::Backend(other),
+    })?;
 
     Ok((
-        [
-            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-            (header::CACHE_CONTROL, "no-store"),
-            (header::HeaderName::from_static("x-accel-buffering"), "no"),
-        ],
-        Body::from_stream(page_stream(shell, state.assistant, question, lang)),
+        [(header::CACHE_CONTROL, "no-store")],
+        Html(saved(&record, lang, now_ms())?),
     )
         .into_response())
 }
 
-/// The ranking and the end of the page, built once the assistant has answered.
-fn results(live: &LiveAnswer, lang: Lang) -> (String, String) {
+fn shell(
+    text: &'static Strings,
+    id: &str,
+    question: String,
+    refresh: bool,
+) -> Result<String, PageError> {
+    AnswerShell {
+        t: text,
+        id: id.to_owned(),
+        question,
+        refresh,
+    }
+    .render()
+    .map_err(|error| PageError::Internal(error.to_string()))
+}
+
+/// A stored ask, as one page.
+fn saved(record: &AskRecordResponse, lang: Lang, now: u64) -> Result<String, PageError> {
     let text = lang.strings();
-    let cards: Vec<CardView> = live
-        .answer
+    let unfinished = !record.state.is_final();
+    let stale = unfinished && now.saturating_sub(record.updated_at) > STALE_AFTER_MS;
+    let waiting = unfinished && !stale;
+    let mut page = shell(text, &record.id, record.question.clone(), waiting)?;
+
+    match &record.answer {
+        Some(answer) => {
+            let (top, bottom) = results(answer, lang, !waiting);
+            page.push_str(&top);
+            page.push_str(&escape(&record.explanation));
+            let note = if stale {
+                Some(text.ask_interrupted.to_owned())
+            } else if record.state == AskStateSchema::Failed {
+                record.failure.clone()
+            } else if record.state == AskStateSchema::Answered && !record.explanation_complete {
+                Some(text.explanation_cut_short.to_owned())
+            } else {
+                None
+            };
+            if let Some(note) = note {
+                page.push_str(&note_html(&note));
+            }
+            page.push_str(&bottom);
+        }
+        None if waiting => page.push_str(&AnswerPending { t: text }.render().unwrap_or_default()),
+        None => {
+            let reason = match (&record.failure, stale) {
+                (Some(reason), false) => reason.clone(),
+                _ => text.ask_interrupted.to_owned(),
+            };
+            page.push_str(&failure(text, reason));
+        }
+    }
+
+    Ok(page)
+}
+
+fn note_html(note: &str) -> String {
+    format!("\n<p class=\"text-danger\">{}</p>", escape(note))
+}
+
+/// The ranking and the end of the page.
+fn results(answer: &AskResponse, lang: Lang, finished: bool) -> (String, String) {
+    let text = lang.strings();
+    let cards: Vec<CardView> = answer
         .recommendations
         .iter()
         .map(|r| view::card(r, lang))
@@ -415,9 +531,8 @@ fn results(live: &LiveAnswer, lang: Lang) -> (String, String) {
     let has_explanation_box = !cards.is_empty();
     let top = AnswerTop {
         t: text,
-        summary: live.answer.summary.clone(),
-        criteria: live
-            .answer
+        summary: answer.summary.clone(),
+        criteria: answer
             .criteria
             .iter()
             .map(|c| {
@@ -435,76 +550,92 @@ fn results(live: &LiveAnswer, lang: Lang) -> (String, String) {
     let bottom = AnswerBottom {
         t: text,
         has_explanation_box,
-        ranked: text.ranked_among(live.answer.catalogue_size),
+        ranked: text.ranked_among(answer.catalogue_size),
+        finished,
     };
 
-    // The templates are checked at compile time; the page has already started, so there is
-    // no error status left to give.
+    // The templates are checked at compile time; a streamed page has already started, so
+    // there is no error status left to give.
     (
         top.render().unwrap_or_default(),
         bottom.render().unwrap_or_default(),
     )
 }
 
-/// The page as it is sent: the shell at once, then the ranking (or why there is none), then
-/// the explanation piece by piece, then the bottom. A broken explanation ends with a note.
-fn page_stream(
+/// A page following an ask while it is answered: the shell at once, then the ranking (or why
+/// there is none), then the explanation as it grows, then the end.
+fn follow(
     shell: String,
-    assistant: Arc<AssistantClient>,
-    question: String,
+    live: watch::Receiver<Snapshot>,
     lang: Lang,
 ) -> impl Stream<Item = Result<String, Infallible>> {
     enum Stage {
-        Shell(String, String),
-        Rank(String),
-        Words(Box<LiveAnswer>, String),
-        Bottom(String),
+        Shell(String),
+        Ranking,
+        Words { sent: usize, bottom: String },
         Over,
     }
     let text = lang.strings();
 
-    futures::stream::unfold(Stage::Shell(shell, question), move |stage| {
-        let assistant = assistant.clone();
-        async move {
+    futures::stream::unfold(
+        (Stage::Shell(shell), live),
+        move |(stage, mut live)| async move {
             let (chunk, next) = match stage {
-                Stage::Shell(shell, question) => (shell, Stage::Rank(question)),
-                Stage::Rank(question) => match assistant.ask_stream(&question).await {
-                    Ok(live) => {
-                        let (top, bottom) = results(&live, lang);
-                        (top, Stage::Words(Box::new(live), bottom))
+                Stage::Shell(shell) => (shell, Stage::Ranking),
+                Stage::Ranking => loop {
+                    let (answer, failed) = {
+                        let now = live.borrow_and_update();
+                        (now.answer.clone(), now.failure.clone())
+                    };
+                    if let Some(answer) = answer {
+                        let (top, bottom) = results(&answer, lang, true);
+                        break (top, Stage::Words { sent: 0, bottom });
                     }
-                    Err(error) => (failed(&error, text), Stage::Over),
+                    if let Some(reason) = failed {
+                        break (failure(text, reason), Stage::Over);
+                    }
+                    if live.changed().await.is_err() {
+                        break (failure(text, text.ask_interrupted.to_owned()), Stage::Over);
+                    }
                 },
-                Stage::Words(mut live, bottom) => match live.next_piece().await {
-                    Some(Piece::Text(text)) => (escape(&text), Stage::Words(live, bottom)),
-                    Some(Piece::Cut) => (
-                        format!(
-                            "\n<p class=\"err\">{}</p>",
-                            escape(text.explanation_cut_short)
-                        ),
-                        Stage::Bottom(bottom),
-                    ),
-                    None => (String::new(), Stage::Bottom(bottom)),
+                Stage::Words { sent, bottom } => loop {
+                    let (more, over, complete) = {
+                        let now = live.borrow_and_update();
+                        (
+                            now.explanation.get(sent..).unwrap_or_default().to_owned(),
+                            now.state.is_final(),
+                            now.complete,
+                        )
+                    };
+                    if !more.is_empty() {
+                        let sent = sent + more.len();
+                        break (escape(&more), Stage::Words { sent, bottom });
+                    }
+                    if over {
+                        let note = if complete {
+                            String::new()
+                        } else {
+                            note_html(text.explanation_cut_short)
+                        };
+                        break (note + &bottom, Stage::Over);
+                    }
+                    if live.changed().await.is_err() {
+                        break (bottom, Stage::Over);
+                    }
                 },
-                Stage::Bottom(bottom) => (bottom, Stage::Over),
                 Stage::Over => return None,
             };
 
-            Some((Ok(chunk), next))
-        }
-    })
+            Some((Ok(chunk), (next, live)))
+        },
+    )
 }
 
-/// The end of a page whose question the assistant could not answer.
-fn failed(error: &BackendError, text: &'static Strings) -> String {
-    tracing::warn!(%error, "the assistant failed");
-
-    AnswerFailed {
-        t: text,
-        message: friendly(error, text),
-    }
-    .render()
-    .unwrap_or_default()
+/// The end of a page whose ask could not be answered.
+fn failure(text: &'static Strings, message: String) -> String {
+    AnswerFailed { t: text, message }
+        .render()
+        .unwrap_or_default()
 }
 
 /// HTML-escapes text that is written into the page by hand.
@@ -655,10 +786,16 @@ mod tests {
     };
 
     use super::*;
+    use crate::{
+        asks::testing::{MemoryStore, record},
+        clients::AssistantClient,
+    };
 
     struct Backends {
         api: MockServer,
         assistant: MockServer,
+        /// Where the asks go; shared by every app built from these backends.
+        store: Arc<MemoryStore>,
     }
 
     impl Backends {
@@ -666,13 +803,21 @@ mod tests {
             Self {
                 api: MockServer::start().await,
                 assistant: MockServer::start().await,
+                store: Arc::new(MemoryStore::default()),
             }
         }
 
         fn app(&self) -> Router {
+            self.app_asking(&self.assistant.uri())
+        }
+
+        fn app_asking(&self, assistant: &str) -> Router {
             router(AppState {
                 api: Arc::new(ApiClient::new(&self.api.uri())),
-                assistant: Arc::new(AssistantClient::new(&self.assistant.uri(), None)),
+                asks: Arc::new(Asks::new(
+                    self.store.clone(),
+                    Arc::new(AssistantClient::new(assistant, None)),
+                )),
             })
         }
 
@@ -723,15 +868,11 @@ mod tests {
         )
     }
 
+    /// Asks, and follows the redirect to the ask's page as a browser would; a question the
+    /// form refuses comes back as the form.
     async fn post_question(app: &Router, question: &str) -> (StatusCode, String) {
-        let body: String = form_urlencoded::Serializer::new(String::new())
-            .append_pair("question", question)
-            .finish();
-        let request = Request::post("/ask")
-            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-            .body(Body::from(body))
-            .unwrap();
-        let (status, html, _) = send(app, request).await;
+        let (status, headers, html) = raw_answer(app, question).await;
+        let _ = headers;
 
         (status, html)
     }
@@ -896,8 +1037,7 @@ mod tests {
             "the script shows it; without one there is no history to list"
         );
         assert!(page.contains("+ New question") && page.contains("data-history-list"));
-        assert!(page.contains(r#"data-missing="That answer is no longer saved in this browser.""#));
-        assert!(page.contains("data-sidebar-toggle") && page.contains("data-home"));
+        assert!(page.contains("data-sidebar-toggle") && !page.contains("data-history-answer"));
         assert!(portuguese.contains("Nova pergunta") && portuguese.contains("Limpar histórico"));
         assert_eq!(gone, StatusCode::NOT_FOUND, "no separate history page");
         let (css_status, css, css_headers) = get(&backends.app(), "/static/app.css").await;
@@ -929,8 +1069,14 @@ mod tests {
         let (_, home, _) = get(&backends.app(), "/").await;
         let (_, html) = post_question(&backends.app(), r#"a "big" table"#).await;
 
-        let tag = r#"<script src="/static/history.js" defer></script>"#;
-        assert!(home.contains(tag) && html.contains(tag));
+        assert!(home.contains(r#"<script src="/static/history.js" defer></script>"#));
+        assert!(
+            html.contains(
+                r#"data-question="a &#34;big&#34; table">
+<script src="/static/history.js"></script>"#
+            ),
+            "on an ask's page the history runs at once, so leaving early still remembers the ask"
+        );
         assert!(html.contains(r#"data-question="a &#34;big&#34; table">"#));
         assert!(
             html.contains("data-sidebar"),
@@ -1061,10 +1207,7 @@ mod tests {
     #[tokio::test]
     async fn an_unreachable_assistant_is_reported_as_such() {
         let backends = Backends::start().await;
-        let app = router(AppState {
-            api: Arc::new(ApiClient::new(&backends.api.uri())),
-            assistant: Arc::new(AssistantClient::new("http://127.0.0.1:1", None)),
-        });
+        let app = backends.app_asking("http://127.0.0.1:1");
 
         let (status, html) = post_question(&app, "a table").await;
 
@@ -1371,6 +1514,11 @@ mod tests {
             .body(Body::from(body))
             .unwrap();
         let (status, html, headers) = send(app, request).await;
+        if status != StatusCode::SEE_OTHER {
+            return (status, headers, html);
+        }
+        let location = headers[header::LOCATION].to_str().unwrap().to_owned();
+        let (status, html, headers) = get(app, &location).await;
 
         (status, headers, html)
     }
@@ -1645,8 +1793,15 @@ mod tests {
             .body(Body::from(body))
             .unwrap();
 
-        let (status, html, _) = send(&backends.app(), request).await;
+        let app = backends.app();
+        let (asked, _, headers) = send(&app, request).await;
+        let page = Request::get(headers[header::LOCATION].to_str().unwrap())
+            .header("accept-language", "pt-BR")
+            .body(Body::empty())
+            .unwrap();
+        let (status, html, _) = send(&app, page).await;
 
+        assert_eq!(asked, StatusCode::SEE_OTHER);
         assert_eq!(status, StatusCode::OK);
         assert!(html.contains("<html lang=\"pt-BR\">"));
         assert!(html.contains("Madeiras para o seu projeto"));
@@ -1674,5 +1829,242 @@ mod tests {
         let (_, html, _) = send(&backends.app(), request).await;
 
         assert!(html.contains("Escreva entre 1 e 1000 caracteres."));
+    }
+
+    // ---- asks -------------------------------------------------------------------------
+
+    fn stored_answer(recommendations: Value) -> zylotek_contracts::assistant::AskResponse {
+        serde_json::from_value(ranking(recommendations)).unwrap()
+    }
+
+    #[tokio::test]
+    async fn asking_opens_an_ask_and_sends_the_visitor_to_its_page() {
+        let backends = Backends::start().await;
+        Mock::given(path("/v1/ask/stream"))
+            .respond_with(answer(json!([recommendation("a", "Cedro")])))
+            .mount(&backends.assistant)
+            .await;
+        let body = "question=+a+table+";
+        let request = Request::post("/ask")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(body))
+            .unwrap();
+
+        let (status, _, headers) = send(&backends.app(), request).await;
+
+        assert_eq!(status, StatusCode::SEE_OTHER);
+        assert_eq!(headers[header::LOCATION], "/asks/ask-1");
+        let stored = backends.store.asks.lock().unwrap()["ask-1"].clone();
+        assert_eq!(stored.question, "a table");
+    }
+
+    #[tokio::test]
+    async fn an_api_that_cannot_open_the_ask_is_an_error_page() {
+        let backends = Backends::start().await;
+        backends
+            .store
+            .down
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+
+        let (status, html) = post_question(&backends.app(), "a table").await;
+
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert!(html.contains("still starting up"));
+    }
+
+    #[tokio::test]
+    async fn a_finished_ask_is_shown_from_what_is_stored() {
+        let backends = Backends::start().await;
+        let mut done = record("done-1", AskStateSchema::Answered);
+        done.answer = Some(stored_answer(json!([recommendation("a", "Cedro")])));
+        done.explanation = "Cedro <is> steady.".into();
+        done.explanation_complete = true;
+        backends.store.put(done);
+
+        let (status, html, headers) = get(&backends.app(), "/asks/done-1").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+        assert!(html.contains(r#"data-ask-id="done-1""#));
+        assert!(html.contains("<strong>Cedro</strong>"));
+        assert!(
+            html.contains("Cedro &lt;is&gt; steady."),
+            "the stored text is escaped"
+        );
+        assert!(html.contains(r#"class="done "#), "the page is marked done");
+        assert!(
+            !html.contains("http-equiv=\"refresh\""),
+            "a finished ask does not refresh"
+        );
+        assert!(!html.contains("cut short"));
+        assert!(html.trim_end().ends_with("</html>"));
+    }
+
+    #[tokio::test]
+    async fn a_stored_ask_still_being_answered_elsewhere_refreshes_itself() {
+        let backends = Backends::start().await;
+        let now = now_ms();
+        let mut queued = record("queued-1", AskStateSchema::Understanding);
+        queued.updated_at = now;
+        let mut writing = record("writing-1", AskStateSchema::Explaining);
+        writing.answer = Some(stored_answer(json!([recommendation("a", "Cedro")])));
+        writing.explanation = "Cedro is".into();
+        writing.updated_at = now;
+        backends.store.put(queued);
+        backends.store.put(writing);
+        let app = backends.app();
+
+        let (_, waiting, _) = get(&app, "/asks/queued-1").await;
+        let (_, partial, _) = get(&app, "/asks/writing-1").await;
+
+        assert!(waiting.contains(r#"<meta http-equiv="refresh" content="3">"#));
+        assert!(waiting.contains("Thinking…") && !waiting.contains(r#"class="results""#));
+        assert!(waiting.trim_end().ends_with("</html>"));
+        assert!(partial.contains(r#"<meta http-equiv="refresh" content="3">"#));
+        assert!(partial.contains("Cedro is") && !partial.contains(r#"class="done "#));
+    }
+
+    #[tokio::test]
+    async fn an_ask_that_stopped_moving_is_shown_as_interrupted() {
+        let backends = Backends::start().await;
+        let mut ranked = record("stuck-1", AskStateSchema::Explaining);
+        ranked.answer = Some(stored_answer(json!([recommendation("a", "Cedro")])));
+        ranked.explanation = "Half".into();
+        backends.store.put(ranked);
+        backends
+            .store
+            .put(record("stuck-2", AskStateSchema::Queued));
+        let app = backends.app();
+
+        let (_, partial, _) = get(&app, "/asks/stuck-1").await;
+        let (_, nothing, _) = get(&app, "/asks/stuck-2").await;
+
+        for page in [&partial, &nothing] {
+            assert!(page.contains("stopped before it was finished"));
+            assert!(!page.contains("http-equiv=\"refresh\""), "no point waiting");
+        }
+        assert!(partial.contains("<strong>Cedro</strong>") && partial.contains("Half"));
+        assert!(nothing.contains(r#"results card failed"#));
+    }
+
+    #[tokio::test]
+    async fn failed_and_cut_short_asks_say_so() {
+        let backends = Backends::start().await;
+        let mut failed = record("failed-1", AskStateSchema::Failed);
+        failed.failure = Some("The assistant had a problem answering.".into());
+        let mut failed_late = record("failed-2", AskStateSchema::Failed);
+        failed_late.answer = Some(stored_answer(json!([recommendation("a", "Cedro")])));
+        failed_late.failure = Some("Gave up.".into());
+        let mut cut = record("cut-1", AskStateSchema::Answered);
+        cut.answer = Some(stored_answer(json!([recommendation("a", "Cedro")])));
+        cut.explanation = "Half".into();
+        let mut none = record("none-1", AskStateSchema::Answered);
+        none.answer = Some(stored_answer(json!([])));
+        none.explanation_complete = true;
+        for ask in [failed, failed_late, cut, none] {
+            backends.store.put(ask);
+        }
+        let app = backends.app();
+
+        let (_, failed, _) = get(&app, "/asks/failed-1").await;
+        let (_, failed_late, _) = get(&app, "/asks/failed-2").await;
+        let (_, cut, _) = get(&app, "/asks/cut-1").await;
+        let (_, none, _) = get(&app, "/asks/none-1").await;
+
+        assert!(failed.contains("The assistant had a problem answering."));
+        assert!(failed.contains(r#"results card failed"#));
+        assert!(failed_late.contains("<strong>Cedro</strong>") && failed_late.contains("Gave up."));
+        assert!(cut.contains("The explanation was cut short."));
+        assert!(none.contains("No wood in the database has the figures"));
+    }
+
+    #[tokio::test]
+    async fn an_unknown_or_malformed_ask_is_a_404_and_a_failing_api_a_502() {
+        let backends = Backends::start().await;
+        Mock::given(path("/api/v1/asks/abc"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&backends.api)
+            .await;
+        let app = backends.app();
+        let broken = router(AppState {
+            api: Arc::new(ApiClient::new(&backends.api.uri())),
+            asks: Arc::new(Asks::new(
+                Arc::new(ApiClient::new(&backends.api.uri())),
+                Arc::new(AssistantClient::new(&backends.assistant.uri(), None)),
+            )),
+        });
+
+        let (missing, html, _) = get(&app, "/asks/nobody").await;
+        let (malformed, _, _) = get(&app, "/asks/..%2Fx").await;
+        let (down, _, _) = get(&broken, "/asks/abc").await;
+
+        assert_eq!(missing, StatusCode::NOT_FOUND);
+        assert!(html.contains("that question"));
+        assert_eq!(malformed, StatusCode::NOT_FOUND);
+        assert_eq!(down, StatusCode::BAD_GATEWAY);
+    }
+
+    #[tokio::test]
+    async fn a_page_following_an_ask_ends_cleanly_if_the_job_goes_away() {
+        let snapshot = Snapshot {
+            question: "q".into(),
+            state: AskStateSchema::Understanding,
+            answer: None,
+            explanation: String::new(),
+            complete: false,
+            failure: None,
+        };
+        let collect = |live: watch::Receiver<Snapshot>| async move {
+            use futures::StreamExt;
+            follow("SHELL".into(), live, Lang::En)
+                .map(Result::unwrap)
+                .collect::<Vec<_>>()
+                .await
+                .concat()
+        };
+
+        let (gone, receiver) = watch::channel(snapshot.clone());
+        drop(gone);
+        let before_ranking = collect(receiver).await;
+        let (sender, receiver) = watch::channel(Snapshot {
+            answer: Some(stored_answer(json!([recommendation("a", "Cedro")]))),
+            explanation: "Half".into(),
+            ..snapshot
+        });
+        drop(sender);
+        let while_writing = collect(receiver).await;
+
+        // Words that arrive while the page waits are sent as they come.
+        let (sender, receiver) = watch::channel(Snapshot {
+            answer: Some(stored_answer(json!([recommendation("a", "Cedro")]))),
+            state: AskStateSchema::Explaining,
+            ..Snapshot {
+                question: "q".into(),
+                state: AskStateSchema::Queued,
+                answer: None,
+                explanation: String::new(),
+                complete: false,
+                failure: None,
+            }
+        });
+        let writer = tokio::spawn(async move {
+            for word in ["Cedro ", "is ", "steady."] {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                sender.send_modify(|s| s.explanation.push_str(word));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            sender.send_modify(|s| {
+                s.state = AskStateSchema::Answered;
+                s.complete = true;
+            });
+        });
+        let streamed = collect(receiver).await;
+        writer.await.unwrap();
+
+        assert!(streamed.contains("Cedro is steady.") && !streamed.contains("cut short"));
+        assert!(before_ranking.starts_with("SHELL"));
+        assert!(before_ranking.contains("stopped before it was finished"));
+        assert!(while_writing.contains("<strong>Cedro</strong>") && while_writing.contains("Half"));
+        assert!(while_writing.trim_end().ends_with("</html>"));
     }
 }

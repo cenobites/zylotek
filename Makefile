@@ -68,7 +68,7 @@ dev:
 #                                measured by the integration gate instead
 #   zylotek-cli, main.rs         thin binaries, exercised through the compiled binary
 COMMON_IGNORE := (testing|test_support)\.rs|/tests/|/benches/|/src/main\.rs$$
-UNIT_IGNORE := $(COMMON_IGNORE)|persistence/woods/models\.rs|/(server|migrations)\.rs|crates/zylotek-cli/
+UNIT_IGNORE := $(COMMON_IGNORE)|persistence/(woods|asks)/models\.rs|/(server|migrations)\.rs|crates/zylotek-cli/
 INTEGRATION_IGNORE := $(COMMON_IGNORE)
 
 # Every test: unit, integration and doc tests

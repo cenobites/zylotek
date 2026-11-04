@@ -1,5 +1,5 @@
 {% if has_explanation_box %}</div>{% endif %}
-<p class="done mt-4 text-muted">{{ ranked }}</p>
+<p class="{% if finished %}done {% endif %}mt-4 text-muted">{{ ranked }}</p>
 <p><a href="/">{{ t.ask_another }}</a></p>
 </main>
 </div>

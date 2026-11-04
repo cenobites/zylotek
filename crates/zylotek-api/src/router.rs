@@ -14,6 +14,7 @@ use tower_http::{
 };
 
 use crate::{
+    asks,
     auth::{jwks_handler, metadata_handler, token_handler},
     state::AppState,
     woods,
@@ -27,6 +28,7 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .nest("/api/v1/woods", woods::routes::router())
+        .nest("/api/v1/asks", asks::routes::router())
         .route("/health", get(health_check_handler))
         .route("/oauth/token", post(token_handler))
         .route("/.well-known/jwks.json", get(jwks_handler))

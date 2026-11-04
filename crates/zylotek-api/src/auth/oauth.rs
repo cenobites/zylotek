@@ -13,7 +13,7 @@ use serde::Serialize;
 use zylotek_contracts::oauth::{CLIENT_CREDENTIALS, OAuthErrorResponse, TokenRequest};
 
 use crate::{
-    auth::{Client, WRITE_SCOPE},
+    auth::{ASKS_WRITE_SCOPE, Client, WRITE_SCOPE},
     errors::ApiError,
     state::AppState,
 };
@@ -252,7 +252,7 @@ pub async fn metadata_handler(State(state): State<AppState>) -> Result<Response,
         .clients()
         .iter()
         .flat_map(|client| client.scopes.iter().cloned())
-        .chain([WRITE_SCOPE.to_owned()])
+        .chain([WRITE_SCOPE.to_owned(), ASKS_WRITE_SCOPE.to_owned()])
         .collect();
     scopes.sort();
     scopes.dedup();
@@ -495,7 +495,7 @@ mod tests {
         );
         assert_eq!(
             metadata["scopes_supported"],
-            json!(["woods:read", "woods:write"])
+            json!(["asks:write", "woods:read", "woods:write"])
         );
     }
 

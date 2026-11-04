@@ -1,0 +1,598 @@
+version = 1
+
+[schema]
+
+[[schema.tables]]
+id = 0
+name = "asks"
+primary_key = { columns = [{ table = 0, index = 0 }], index = { table = 0, index = 0 } }
+
+[[schema.tables.columns]]
+id = { table = 0, index = 0 }
+name = "id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 0, index = 1 }
+name = "question"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 0, index = 2 }
+name = "state"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 0, index = 3 }
+name = "ranking"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 0, index = 4 }
+name = "explanation"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 0, index = 5 }
+name = "explanation_complete"
+ty = "Bool"
+storage_ty = "Boolean"
+
+[[schema.tables.columns]]
+id = { table = 0, index = 6 }
+name = "failure"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 0, index = 7 }
+name = "created_at"
+ty = "U64"
+storage_ty = { UnsignedInteger = 8 }
+
+[[schema.tables.columns]]
+id = { table = 0, index = 8 }
+name = "updated_at"
+ty = "U64"
+storage_ty = { UnsignedInteger = 8 }
+
+[[schema.tables.indices]]
+id = { table = 0, index = 0 }
+name = "index_asks_by_id"
+on = 0
+columns = [{ column = { table = 0, index = 0 }, op = "Eq", scope = "Partition" }]
+unique = true
+primary_key = true
+
+[[schema.tables]]
+id = 1
+name = "woods"
+primary_key = { columns = [{ table = 1, index = 0 }], index = { table = 1, index = 0 } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 0 }
+name = "id"
+ty = "Bytes"
+storage_ty = "Blob"
+
+[[schema.tables.columns]]
+id = { table = 1, index = 1 }
+name = "name"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 1, index = 2 }
+name = "scientific_name"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 1, index = 3 }
+name = "family"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 4 }
+name = "collection_location"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 5 }
+name = "common_names"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 1, index = 6 }
+name = "source_species_id"
+ty = "U64"
+storage_ty = { UnsignedInteger = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 7 }
+name = "source_page_url"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 8 }
+name = "tree"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 1, index = 9 }
+name = "general_characteristics"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 1, index = 10 }
+name = "description_end_uses"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 11 }
+name = "description_preservation"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 12 }
+name = "description_workability_notes"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 13 }
+name = "description_heartwood_color_classification"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 14 }
+name = "kiln_drying_schedule"
+ty = "String"
+storage_ty = "Text"
+
+[[schema.tables.columns]]
+id = { table = 1, index = 15 }
+name = "kiln_drying_days"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 16 }
+name = "images_main"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 17 }
+name = "images_tree"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 18 }
+name = "images_log"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 19 }
+name = "images_bark"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 20 }
+name = "images_tangential_cut"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 21 }
+name = "images_cross_section"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 22 }
+name = "images_radial_cut"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 23 }
+name = "images_wood"
+ty = "String"
+storage_ty = "Text"
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 24 }
+name = "physical_properties_density_dry"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 25 }
+name = "physical_properties_density_green"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 26 }
+name = "physical_properties_density_basic"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 27 }
+name = "physical_properties_density_apparent"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 28 }
+name = "physical_properties_shrinkage_tangential"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 29 }
+name = "physical_properties_shrinkage_radial"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 30 }
+name = "physical_properties_shrinkage_volumetric"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 31 }
+name = "mechanical_properties_green_bending_modulus_of_rupture"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 32 }
+name = "mechanical_properties_green_bending_modulus_of_elasticity"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 33 }
+name = "mechanical_properties_green_compression_parallel_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 34 }
+name = "mechanical_properties_green_compression_perpendicular_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 35 }
+name = "mechanical_properties_green_janka_hardness_parallel_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 36 }
+name = "mechanical_properties_green_janka_hardness_end_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 37 }
+name = "mechanical_properties_green_tension_perpendicular_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 38 }
+name = "mechanical_properties_green_cleavage_strength"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 39 }
+name = "mechanical_properties_green_shear_parallel_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 40 }
+name = "mechanical_properties_green_nail_extraction_parallel_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 41 }
+name = "mechanical_properties_green_nail_extraction_end_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 42 }
+name = "mechanical_properties_dry_bending_modulus_of_rupture"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 43 }
+name = "mechanical_properties_dry_bending_modulus_of_elasticity"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 44 }
+name = "mechanical_properties_dry_compression_parallel_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 45 }
+name = "mechanical_properties_dry_compression_perpendicular_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 46 }
+name = "mechanical_properties_dry_janka_hardness_parallel_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 47 }
+name = "mechanical_properties_dry_janka_hardness_end_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 48 }
+name = "mechanical_properties_dry_tension_perpendicular_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 49 }
+name = "mechanical_properties_dry_cleavage_strength"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 50 }
+name = "mechanical_properties_dry_shear_parallel_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 51 }
+name = "mechanical_properties_dry_nail_extraction_parallel_to_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 52 }
+name = "mechanical_properties_dry_nail_extraction_end_grain"
+ty = "F64"
+storage_ty = { Float = 8 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 53 }
+name = "workabilities_molding_planer_number_of_samples"
+ty = "U32"
+storage_ty = { UnsignedInteger = 4 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 54 }
+name = "workabilities_molding_planer_surface_finish"
+ty = "String"
+storage_ty = { Enum = { name = "workability_rating", variants = [{ name = "not_applicable" }, { name = "very_poor" }, { name = "poor" }, { name = "fair" }, { name = "easy" }, { name = "good" }, { name = "very_good" }, { name = "excellent" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 55 }
+name = "workabilities_molding_planer_defect"
+ty = "String"
+storage_ty = { Enum = { name = "workability_defect", variants = [{ name = "not_applicable" }, { name = "flawless" }, { name = "fair" }, { name = "fluffy" }, { name = "crushed" }, { name = "ripped_off" }, { name = "lifted" }, { name = "scratched" }, { name = "fluffy_and_crushed" }, { name = "fluffy_and_ripped_off" }, { name = "fluffy_and_scratched" }, { name = "fluffy_and_ripped_off_and_lifted" }, { name = "fluffy_and_crushed_and_lifted" }, { name = "crushed_and_ripped_off" }, { name = "crushed_and_fluffy_and_ripped_off" }, { name = "lifted_and_ripped_off" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 56 }
+name = "workabilities_molding_planer_equipment_settings"
+ty = "String"
+storage_ty = { Enum = { name = "workability_equipment_settings", variants = [{ name = "not_applicable" }, { name = "not_suitable" }, { name = "suitable" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 57 }
+name = "workabilities_narrow_belt_sander_number_of_samples"
+ty = "U32"
+storage_ty = { UnsignedInteger = 4 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 58 }
+name = "workabilities_narrow_belt_sander_surface_finish"
+ty = "String"
+storage_ty = { Enum = { name = "workability_rating", variants = [{ name = "not_applicable" }, { name = "very_poor" }, { name = "poor" }, { name = "fair" }, { name = "easy" }, { name = "good" }, { name = "very_good" }, { name = "excellent" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 59 }
+name = "workabilities_narrow_belt_sander_defect"
+ty = "String"
+storage_ty = { Enum = { name = "workability_defect", variants = [{ name = "not_applicable" }, { name = "flawless" }, { name = "fair" }, { name = "fluffy" }, { name = "crushed" }, { name = "ripped_off" }, { name = "lifted" }, { name = "scratched" }, { name = "fluffy_and_crushed" }, { name = "fluffy_and_ripped_off" }, { name = "fluffy_and_scratched" }, { name = "fluffy_and_ripped_off_and_lifted" }, { name = "fluffy_and_crushed_and_lifted" }, { name = "crushed_and_ripped_off" }, { name = "crushed_and_fluffy_and_ripped_off" }, { name = "lifted_and_ripped_off" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 60 }
+name = "workabilities_narrow_belt_sander_equipment_settings"
+ty = "String"
+storage_ty = { Enum = { name = "workability_equipment_settings", variants = [{ name = "not_applicable" }, { name = "not_suitable" }, { name = "suitable" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 61 }
+name = "workabilities_lathe_number_of_samples"
+ty = "U32"
+storage_ty = { UnsignedInteger = 4 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 62 }
+name = "workabilities_lathe_surface_finish"
+ty = "String"
+storage_ty = { Enum = { name = "workability_rating", variants = [{ name = "not_applicable" }, { name = "very_poor" }, { name = "poor" }, { name = "fair" }, { name = "easy" }, { name = "good" }, { name = "very_good" }, { name = "excellent" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 63 }
+name = "workabilities_lathe_defect"
+ty = "String"
+storage_ty = { Enum = { name = "workability_defect", variants = [{ name = "not_applicable" }, { name = "flawless" }, { name = "fair" }, { name = "fluffy" }, { name = "crushed" }, { name = "ripped_off" }, { name = "lifted" }, { name = "scratched" }, { name = "fluffy_and_crushed" }, { name = "fluffy_and_ripped_off" }, { name = "fluffy_and_scratched" }, { name = "fluffy_and_ripped_off_and_lifted" }, { name = "fluffy_and_crushed_and_lifted" }, { name = "crushed_and_ripped_off" }, { name = "crushed_and_fluffy_and_ripped_off" }, { name = "lifted_and_ripped_off" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 64 }
+name = "workabilities_lathe_equipment_settings"
+ty = "String"
+storage_ty = { Enum = { name = "workability_equipment_settings", variants = [{ name = "not_applicable" }, { name = "not_suitable" }, { name = "suitable" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 65 }
+name = "workabilities_drill_bit_number_of_samples"
+ty = "U32"
+storage_ty = { UnsignedInteger = 4 }
+nullable = true
+
+[[schema.tables.columns]]
+id = { table = 1, index = 66 }
+name = "workabilities_drill_bit_surface_finish"
+ty = "String"
+storage_ty = { Enum = { name = "workability_rating", variants = [{ name = "not_applicable" }, { name = "very_poor" }, { name = "poor" }, { name = "fair" }, { name = "easy" }, { name = "good" }, { name = "very_good" }, { name = "excellent" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 67 }
+name = "workabilities_drill_bit_defect"
+ty = "String"
+storage_ty = { Enum = { name = "workability_defect", variants = [{ name = "not_applicable" }, { name = "flawless" }, { name = "fair" }, { name = "fluffy" }, { name = "crushed" }, { name = "ripped_off" }, { name = "lifted" }, { name = "scratched" }, { name = "fluffy_and_crushed" }, { name = "fluffy_and_ripped_off" }, { name = "fluffy_and_scratched" }, { name = "fluffy_and_ripped_off_and_lifted" }, { name = "fluffy_and_crushed_and_lifted" }, { name = "crushed_and_ripped_off" }, { name = "crushed_and_fluffy_and_ripped_off" }, { name = "lifted_and_ripped_off" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 68 }
+name = "workabilities_drill_bit_equipment_settings"
+ty = "String"
+storage_ty = { Enum = { name = "workability_equipment_settings", variants = [{ name = "not_applicable" }, { name = "not_suitable" }, { name = "suitable" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 69 }
+name = "workabilities_surface_finishing_planer"
+ty = "String"
+storage_ty = { Enum = { name = "workability_rating", variants = [{ name = "not_applicable" }, { name = "very_poor" }, { name = "poor" }, { name = "fair" }, { name = "easy" }, { name = "good" }, { name = "very_good" }, { name = "excellent" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 70 }
+name = "workabilities_surface_finishing_sandpaper"
+ty = "String"
+storage_ty = { Enum = { name = "workability_rating", variants = [{ name = "not_applicable" }, { name = "very_poor" }, { name = "poor" }, { name = "fair" }, { name = "easy" }, { name = "good" }, { name = "very_good" }, { name = "excellent" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 71 }
+name = "workabilities_surface_finishing_vise"
+ty = "String"
+storage_ty = { Enum = { name = "workability_rating", variants = [{ name = "not_applicable" }, { name = "very_poor" }, { name = "poor" }, { name = "fair" }, { name = "easy" }, { name = "good" }, { name = "very_good" }, { name = "excellent" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 72 }
+name = "workabilities_surface_finishing_drill"
+ty = "String"
+storage_ty = { Enum = { name = "workability_rating", variants = [{ name = "not_applicable" }, { name = "very_poor" }, { name = "poor" }, { name = "fair" }, { name = "easy" }, { name = "good" }, { name = "very_good" }, { name = "excellent" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 73 }
+name = "workabilities_surface_finishing_nail_crack"
+ty = "String"
+storage_ty = { Enum = { name = "nail_crack_behavior", variants = [{ name = "not_applicable" }, { name = "does_not_crack" }, { name = "does_not_crack_except_corners" }, { name = "cracks" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 74 }
+name = "workabilities_heartwood_treatability"
+ty = "String"
+storage_ty = { Enum = { name = "treatability_rating", variants = [{ name = "not_applicable" }, { name = "green" }, { name = "dry" }, { name = "very_hard" }, { name = "hard" }, { name = "moderately_hard" }, { name = "moderately_easy" }, { name = "easy" }, { name = "very_easy" }] } }
+
+[[schema.tables.columns]]
+id = { table = 1, index = 75 }
+name = "workabilities_sapwood_treatability"
+ty = "String"
+storage_ty = { Enum = { name = "treatability_rating", variants = [{ name = "not_applicable" }, { name = "green" }, { name = "dry" }, { name = "very_hard" }, { name = "hard" }, { name = "moderately_hard" }, { name = "moderately_easy" }, { name = "easy" }, { name = "very_easy" }] } }
+
+[[schema.tables.indices]]
+id = { table = 1, index = 0 }
+name = "index_woods_by_id"
+on = 1
+columns = [{ column = { table = 1, index = 0 }, op = "Eq", scope = "Partition" }]
+unique = true
+primary_key = true
+
+[[schema.tables.indices]]
+id = { table = 1, index = 1 }
+name = "index_woods_by_scientific_name"
+on = 1
+columns = [{ column = { table = 1, index = 2 }, op = "Eq", scope = "Partition" }]
+unique = true

@@ -27,7 +27,7 @@ use std::{
 
 pub use clients::{Client, ClientRegistry, create_client, list_clients};
 pub use error::AuthError;
-pub use guard::WriteAccess;
+pub use guard::{AskWriteAccess, WriteAccess};
 pub use keys::{generate_signing_key_pem, write_new_signing_key};
 pub use oauth::{jwks_handler, metadata_handler, token_handler};
 pub use tokens::{Claims, TokenError};
@@ -38,6 +38,9 @@ use tokens::Authority;
 
 /// The scope that allows creating, replacing and deleting woods.
 pub const WRITE_SCOPE: &str = "woods:write";
+/// The scope that allows opening asks and recording their progress: what the web app needs,
+/// without the right to change woods.
+pub const ASKS_WRITE_SCOPE: &str = "asks:write";
 /// The `aud` claim of every access token: this API.
 pub const AUDIENCE: &str = "zylotek-api";
 pub const DEFAULT_ISSUER: &str = "http://localhost:8080";
