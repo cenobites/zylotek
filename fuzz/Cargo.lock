@@ -4143,6 +4143,7 @@ dependencies = [
  "axum",
  "base64 0.23.1",
  "chrono",
+ "clap",
  "ed25519-dalek 3.0.0",
  "getrandom 0.4.3",
  "jsonwebtoken",
@@ -4155,8 +4156,8 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "tracing-subscriber",
  "zylotek-application",
+ "zylotek-config",
  "zylotek-contracts",
  "zylotek-domain",
  "zylotek-infrastructure",
@@ -4182,15 +4183,27 @@ dependencies = [
  "axum",
  "clap",
  "futures",
+ "log",
  "reqwest",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
- "tracing-subscriber",
+ "zylotek-config",
  "zylotek-contracts",
+ "zylotek-infrastructure",
+]
+
+[[package]]
+name = "zylotek-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -4265,16 +4278,21 @@ name = "zylotek-webapp"
 version = "0.1.0"
 dependencies = [
  "askama",
+ "async-trait",
  "axum",
  "clap",
  "form_urlencoded",
  "futures",
+ "log",
  "reqwest",
  "serde",
  "serde_json",
  "thiserror",
  "tokio",
+ "tower",
+ "tower-http",
  "tracing",
- "tracing-subscriber",
+ "zylotek-config",
  "zylotek-contracts",
+ "zylotek-infrastructure",
 ]
