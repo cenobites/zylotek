@@ -1,19 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ wood.name }}{% endblock %}
 {% block content %}
-<h1>{{ wood.name }}</h1>
-<p><em>{{ wood.scientific_name }}</em>{% if !wood.common_names.is_empty() %} · {{ t.also_called }} {{ wood.common_names }}{% endif %}</p>
-{% if let Some(image) = wood.image %}<img class="hero" src="{{ image }}" alt="{{ wood.name }}" referrerpolicy="no-referrer">{% endif %}
-<h2>{{ t.key_figures }}</h2>
-<table>{% for fact in wood.facts %}<tr><th>{{ fact.label }}</th><td>{{ fact.value }}</td></tr>{% endfor %}</table>
-{% if let Some(text) = wood.end_uses %}<h2>{{ t.typical_uses }}</h2><p>{{ text }}</p>{% endif %}
-{% if let Some(text) = wood.workability_notes %}<h2>{{ t.working_it }}</h2><p>{{ text }}</p>{% endif %}
-{% if let Some(text) = wood.preservation %}<h2>{{ t.durability }}</h2><p>{{ text }}</p>{% endif %}
-{% if !wood.characteristics.is_empty() %}<h2>{{ t.general_characteristics }}</h2>
-<table>{% for pair in wood.characteristics %}<tr><th>{{ pair.key }}</th><td>{{ pair.value }}</td></tr>{% endfor %}</table>{% endif %}
-{% if !wood.tree.is_empty() %}<h2>{{ t.the_tree }}</h2>
-<table>{% for pair in wood.tree %}<tr><th>{{ pair.key }}</th><td>{{ pair.value }}</td></tr>{% endfor %}</table>{% endif %}
-{% if let Some(note) = wood.location_note %}<p class="muted">{{ note }}</p>{% endif %}
-{% if let Some(url) = wood.source_url %}<p class="muted"><a href="{{ url }}" rel="noopener noreferrer">{{ t.source }}</a></p>{% endif %}
+{% include "wood_body.html" %}
 <p><a href="/woods">{{ t.all_woods }}</a></p>
 {% endblock %}

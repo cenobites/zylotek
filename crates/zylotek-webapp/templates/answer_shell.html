@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="{{ t.html_lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ t.answer_title }} · Zylotek</title>
+{% include "style.html" %}
+</head>
+<body>
+{% include "nav.html" %}
+<main class="answer">
+<h1>{{ t.answer_heading }}</h1>
+<p class="question">“{{ question }}”</p>
+<div class="thinking card" role="status" aria-live="polite">
+<p class="thinking-title"><span class="spinner" aria-hidden="true"></span> {{ t.thinking }}</p>
+<ol>
+{% for step in t.thinking_steps %}<li style="--step:{{ loop.index0 }}">{{ step }}</li>
+{% endfor %}</ol>
+</div>

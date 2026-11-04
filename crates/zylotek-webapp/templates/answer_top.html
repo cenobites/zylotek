@@ -1,36 +1,38 @@
-<!doctype html>
-<html lang="{{ t.html_lang }}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ t.answer_title }} · Zylotek</title>
-{% include "style.html" %}
-</head>
-<body>
-{% include "nav.html" %}
-<main>
-<h1>{{ t.answer_heading }}</h1>
-<p class="muted">“{{ question }}”</p>
+<div class="results">
 {% if !summary.is_empty() %}<p>{{ t.understood }} <strong>{{ summary }}</strong></p>{% endif %}
 <p class="chips">{{ t.looked_at }}
 {% for chip in criteria %}<span>{{ chip }}</span>{% endfor %}
 </p>
 {% if cards.is_empty() %}
 <p>{{ t.no_matches }}</p>
+</div>
 {% else %}
 <form method="get" action="/compare">
 {% for card in cards %}
-<div class="card">
+<div class="card wood-card" id="card-{{ card.id }}">
 <label>{% if can_compare %}<input type="checkbox" name="id" value="{{ card.id }}"> {% endif %}<strong>{{ card.name }}</strong></label>
 <em class="muted">{{ card.scientific_name }}</em> — {{ t.match_word }} <strong>{{ card.percent }}%</strong>
 <div class="bar"><i style="width:{{ card.percent }}%"></i></div>
 <ul>
 {% for reason in card.reasons %}<li>{{ reason.label }}: {{ reason.value }} <span class="muted">({{ reason.better_than }})</span></li>{% endfor %}
 </ul>
-<a href="/woods/{{ card.id }}">{{ t.full_details }}</a>
+<a class="peek" href="#peek-{{ card.id }}">{{ t.full_details }} →</a>
 </div>
 {% endfor %}
 {% if can_compare %}<p><button type="submit">{{ t.compare_submit_range }}</button></p>{% endif %}
 </form>
+{% for card in cards %}
+<aside class="drawer" id="peek-{{ card.id }}" aria-label="{{ card.name }}">
+<a class="backdrop" href="#card-{{ card.id }}" tabindex="-1" aria-hidden="true"></a>
+<div class="sheet">
+<div class="sheet-bar"><strong>{{ card.name }}</strong>
+<a href="/woods/{{ card.id }}" target="_blank" rel="noopener">{{ t.open_full_page }}</a>
+<a class="close" href="#card-{{ card.id }}">✕ {{ t.close }}</a></div>
+<iframe src="/woods/{{ card.id }}?embed=1" loading="lazy" title="{{ card.name }}"></iframe>
+</div>
+</aside>
+{% endfor %}
+</div>
 <h2>{{ t.in_short }}</h2>
+<p class="writing muted"><span class="spinner" aria-hidden="true"></span> {{ t.writing }}</p>
 <div class="card prose">{% endif %}

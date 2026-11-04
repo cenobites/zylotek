@@ -1,11 +1,23 @@
 {% extends "base.html" %}
 {% block title %}{{ t.home_title }}{% endblock %}
 {% block content %}
+<section class="hero">
 <h1>{{ t.home_heading }}</h1>
-<p class="muted">{{ t.home_intro }}</p>
-<form method="post" action="/ask">
+<p class="lead">{{ t.home_intro }}</p>
+<form method="post" action="/ask" class="ask">
 <textarea name="question" maxlength="1000" required placeholder="{{ t.home_placeholder }}">{{ question }}</textarea>
 {% if let Some(error) = error %}<p class="err">{{ error }}</p>{% endif %}
 <p><button type="submit">{{ t.home_submit }}</button></p>
 </form>
+</section>
+<h2>{{ t.home_try }}</h2>
+<form method="post" action="/ask" class="examples">
+{% for example in t.home_examples %}<button type="submit" name="question" value="{{ example }}">{{ example }}</button>
+{% endfor %}</form>
+<h2>{{ t.home_explore }}</h2>
+<div class="tiles">
+<a class="tile card" href="/woods"><strong>{{ t.nav_browse }}</strong><span class="muted">{{ t.home_browse_text }}</span></a>
+<a class="tile card" href="/woods"><strong>{{ t.compare_title }}</strong><span class="muted">{{ t.home_compare_text }}</span></a>
+</div>
+<p class="muted">{{ t.home_tagline }}</p>
 {% endblock %}

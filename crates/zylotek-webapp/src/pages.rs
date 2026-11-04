@@ -1,5 +1,7 @@
 //! The pages: ask a question, browse woods, read one, compare several. Rendered on the
-//! server; the browser needs no script.
+//! server; the browser needs no script. The answer page streams: a thinking panel at once,
+//! the ranking when it is ready, then the explanation as it is written, and CSS `:has()`
+//! hides each progress note once what it waits for has arrived.
 
 use std::sync::Arc;
 
@@ -48,7 +50,8 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// No scripts, no framing, images only over HTTPS: the pages need nothing more.
+/// No scripts, framing by this site only (the wood drawer on the answer page), images only
+/// over HTTPS: the pages need nothing more.
 async fn security_headers(
     request: axum::extract::Request,
     next: axum::middleware::Next,
@@ -58,7 +61,7 @@ async fn security_headers(
     for (name, value) in [
         (
             "content-security-policy",
-            "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+            "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; frame-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'self'",
         ),
         ("x-content-type-options", "nosniff"),
         ("referrer-policy", "no-referrer"),
@@ -119,12 +122,19 @@ struct HomePage {
     error: Option<String>,
 }
 
-/// Everything up to the opening of the box the explanation streams into.
+/// What is sent at once, before the assistant has answered: the question and the thinking panel.
+#[derive(Template)]
+#[template(path = "answer_shell.html")]
+struct AnswerShell {
+    t: &'static Strings,
+    question: String,
+}
+
+/// The ranking, up to the opening of the box the explanation streams into.
 #[derive(Template)]
 #[template(path = "answer_top.html")]
 struct AnswerTop {
     t: &'static Strings,
-    question: String,
     summary: String,
     /// "Hardness · essential", one chip each.
     criteria: Vec<String>,
@@ -141,6 +151,14 @@ struct AnswerBottom {
     ranked: String,
 }
 
+/// What closes the page when the assistant could not answer.
+#[derive(Template)]
+#[template(path = "answer_failed.html")]
+struct AnswerFailed {
+    t: &'static Strings,
+    message: String,
+}
+
 #[derive(Template)]
 #[template(path = "woods.html")]
 struct WoodsPage {
@@ -154,6 +172,14 @@ struct WoodsPage {
 #[derive(Template)]
 #[template(path = "wood.html")]
 struct WoodPage {
+    t: &'static Strings,
+    wood: WoodView,
+}
+
+/// A wood without the site around it, for the drawer on the answer page.
+#[derive(Template)]
+#[template(path = "wood_embed.html")]
+struct WoodEmbed {
     t: &'static Strings,
     wood: WoodView,
 }
@@ -327,9 +353,30 @@ async fn ask(
         .into_response());
     }
 
-    // Wait only for the ranking. Anything that goes wrong before it is an ordinary error page;
-    // once the page has started, the explanation is a courtesy that may be cut short.
-    let live = state.assistant.ask_stream(&question).await?;
+    // The page starts at once, so the visitor sees it thinking; from here on a failure is
+    // told inside the page rather than as an error status.
+    let text = lang.strings();
+    let shell = AnswerShell {
+        t: text,
+        question: question.clone(),
+    }
+    .render()
+    .map_err(|error| PageError::Internal(error.to_string()))?;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::HeaderName::from_static("x-accel-buffering"), "no"),
+        ],
+        Body::from_stream(page_stream(shell, state.assistant, question, lang)),
+    )
+        .into_response())
+}
+
+/// The ranking and the end of the page, built once the assistant has answered.
+fn results(live: &LiveAnswer, lang: Lang) -> (String, String) {
+    let text = lang.strings();
     let cards: Vec<CardView> = live
         .answer
         .recommendations
@@ -337,10 +384,8 @@ async fn ask(
         .map(|r| view::card(r, lang))
         .collect();
     let has_explanation_box = !cards.is_empty();
-    let text = lang.strings();
     let top = AnswerTop {
         t: text,
-        question,
         summary: live.answer.summary.clone(),
         criteria: live
             .answer
@@ -357,66 +402,80 @@ async fn ask(
             .collect(),
         can_compare: cards.len() >= MIN_COMPARE,
         cards,
-    }
-    .render()
-    .map_err(|error| PageError::Internal(error.to_string()))?;
+    };
     let bottom = AnswerBottom {
         t: text,
         has_explanation_box,
         ranked: text.ranked_among(live.answer.catalogue_size),
-    }
-    .render()
-    .map_err(|error| PageError::Internal(error.to_string()))?;
+    };
 
-    Ok((
-        [
-            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-            (header::CACHE_CONTROL, "no-store"),
-            (header::HeaderName::from_static("x-accel-buffering"), "no"),
-        ],
-        Body::from_stream(page_stream(top, bottom, live, text)),
+    // The templates are checked at compile time; the page has already started, so there is
+    // no error status left to give.
+    (
+        top.render().unwrap_or_default(),
+        bottom.render().unwrap_or_default(),
     )
-        .into_response())
 }
 
-/// The page as it is sent: the top at once, then the explanation piece by piece, then the
-/// bottom. A broken explanation ends with a note instead of an error.
+/// The page as it is sent: the shell at once, then the ranking (or why there is none), then
+/// the explanation piece by piece, then the bottom. A broken explanation ends with a note.
 fn page_stream(
-    top: String,
-    bottom: String,
-    live: LiveAnswer,
-    text: &'static Strings,
+    shell: String,
+    assistant: Arc<AssistantClient>,
+    question: String,
+    lang: Lang,
 ) -> impl Stream<Item = Result<String, Infallible>> {
     enum Stage {
-        Top(String),
-        Words,
-        Bottom,
+        Shell(String, String),
+        Rank(String),
+        Words(Box<LiveAnswer>, String),
+        Bottom(String),
         Over,
     }
+    let text = lang.strings();
 
-    futures::stream::unfold(
-        (Stage::Top(top), live, bottom),
-        move |(stage, mut live, bottom)| async move {
+    futures::stream::unfold(Stage::Shell(shell, question), move |stage| {
+        let assistant = assistant.clone();
+        async move {
             let (chunk, next) = match stage {
-                Stage::Top(top) => (top, Stage::Words),
-                Stage::Words => match live.next_piece().await {
-                    Some(Piece::Text(text)) => (escape(&text), Stage::Words),
+                Stage::Shell(shell, question) => (shell, Stage::Rank(question)),
+                Stage::Rank(question) => match assistant.ask_stream(&question).await {
+                    Ok(live) => {
+                        let (top, bottom) = results(&live, lang);
+                        (top, Stage::Words(Box::new(live), bottom))
+                    }
+                    Err(error) => (failed(&error, text), Stage::Over),
+                },
+                Stage::Words(mut live, bottom) => match live.next_piece().await {
+                    Some(Piece::Text(text)) => (escape(&text), Stage::Words(live, bottom)),
                     Some(Piece::Cut) => (
                         format!(
                             "\n<p class=\"err\">{}</p>",
                             escape(text.explanation_cut_short)
                         ),
-                        Stage::Bottom,
+                        Stage::Bottom(bottom),
                     ),
-                    None => (String::new(), Stage::Bottom),
+                    None => (String::new(), Stage::Bottom(bottom)),
                 },
-                Stage::Bottom => (bottom.clone(), Stage::Over),
+                Stage::Bottom(bottom) => (bottom, Stage::Over),
                 Stage::Over => return None,
             };
 
-            Some((Ok(chunk), (next, live, bottom)))
-        },
-    )
+            Some((Ok(chunk), next))
+        }
+    })
+}
+
+/// The end of a page whose question the assistant could not answer.
+fn failed(error: &BackendError, text: &'static Strings) -> String {
+    tracing::warn!(%error, "the assistant failed");
+
+    AnswerFailed {
+        t: text,
+        message: friendly(error, text),
+    }
+    .render()
+    .unwrap_or_default()
 }
 
 /// HTML-escapes text that is written into the page by hand.
@@ -462,17 +521,25 @@ async fn woods(
     })
 }
 
+#[derive(Deserialize)]
+struct WoodQuery {
+    /// Any value: the page goes into the answer page's drawer, without the site around it.
+    embed: Option<String>,
+}
+
 async fn wood(
     lang: Lang,
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Query(query): Query<WoodQuery>,
 ) -> Result<Html<String>, PageError> {
     let wood = state.api.get(&id).await?;
+    let (t, wood) = (lang.strings(), view::detail(&wood, lang));
 
-    render(WoodPage {
-        t: lang.strings(),
-        wood: view::detail(&wood, lang),
-    })
+    match query.embed {
+        Some(_) => render(WoodEmbed { t, wood }),
+        None => render(WoodPage { t, wood }),
+    }
 }
 
 /// The `id` values of a query string: distinct, well-formed, between 2 and 4 of them.
@@ -662,14 +729,22 @@ mod tests {
         let (status, html, headers) = get(&backends.app(), "/").await;
 
         assert_eq!(status, StatusCode::OK);
-        assert!(html.contains(r#"<form method="post" action="/ask">"#));
+        assert!(html.contains(r#"<form method="post" action="/ask" class="ask">"#));
         assert!(html.contains("<textarea"));
+        assert!(
+            html.contains(r#"<button type="submit" name="question" value="I need a stable wood for a wide kitchen countertop that won&#39;t warp.">"#),
+            "an example is asked in one click"
+        );
+        assert!(html.contains(r#"href="/woods""#));
         assert!(
             headers["content-security-policy"]
                 .to_str()
                 .unwrap()
                 .contains("default-src 'none'")
         );
+        let policy = headers["content-security-policy"].to_str().unwrap();
+        assert!(policy.contains("frame-src 'self'") && policy.contains("frame-ancestors 'self'"));
+        assert!(!policy.contains("script-src"), "still no scripts");
         assert_eq!(headers["x-content-type-options"], "nosniff");
         assert_eq!(headers["referrer-policy"], "no-referrer");
         assert_eq!(get(&backends.app(), "/health").await.1, "OK");
@@ -716,6 +791,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_answer_page_thinks_first_then_ranks_then_writes() {
+        let backends = Backends::start().await;
+        Mock::given(path("/v1/ask/stream"))
+            .respond_with(answer(json!([recommendation("a", "Cedro")])))
+            .mount(&backends.assistant)
+            .await;
+
+        let (_, html) = post_question(&backends.app(), "a table").await;
+
+        let at = |needle: &str| html.find(needle).unwrap_or_else(|| panic!("no {needle}"));
+        assert!(html.contains("Reading your project"));
+        assert!(at(r#"class="thinking card""#) < at(r#"class="results""#));
+        assert!(at(r#"class="results""#) < at(r#"class="writing muted""#));
+        assert!(at("Cedro is steady") < at(r#"class="muted done""#));
+    }
+
+    #[tokio::test]
+    async fn a_suggested_wood_opens_in_a_drawer_over_the_answer() {
+        let backends = Backends::start().await;
+        Mock::given(path("/v1/ask/stream"))
+            .respond_with(answer(json!([recommendation("a", "Cedro")])))
+            .mount(&backends.assistant)
+            .await;
+
+        let (_, html) = post_question(&backends.app(), "a table").await;
+
+        assert!(html.contains(r##"<a class="peek" href="#peek-a">"##));
+        assert!(html.contains(r#"<aside class="drawer" id="peek-a""#));
+        assert!(html.contains(r#"<iframe src="/woods/a?embed=1""#));
+        assert!(
+            html.contains(r##"<a class="close" href="#card-a">"##),
+            "closing returns to the card"
+        );
+        assert!(html.contains(r#"id="card-a""#));
+        assert!(html.contains(r#"<a href="/woods/a" target="_blank" rel="noopener">"#));
+    }
+
+    #[tokio::test]
+    async fn an_embedded_wood_page_has_no_site_around_it() {
+        let backends = Backends::start().await;
+        backends.wood("a", "Cedro").await;
+
+        let (status, embedded, _) = get(&backends.app(), "/woods/a?embed=1").await;
+        let (_, full, _) = get(&backends.app(), "/woods/a").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            embedded.contains("<h1>Cedro</h1>") && embedded.contains(r#"<body class="embed">"#)
+        );
+        assert!(!embedded.contains("<header>") && !embedded.contains("All woods"));
+        assert!(full.contains("<header>") && full.contains("All woods"));
+    }
+
+    #[tokio::test]
     async fn one_recommendation_cannot_be_compared_and_none_says_so() {
         let backends = Backends::start().await;
         Mock::given(path("/v1/ask/stream"))
@@ -757,7 +886,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assistant_trouble_becomes_a_friendly_page_without_internals() {
+    async fn assistant_trouble_ends_the_started_page_with_a_friendly_note_without_internals() {
         let backends = Backends::start().await;
         Mock::given(path("/v1/ask/stream"))
             .and(wiremock::matchers::body_string_contains("starting"))
@@ -786,13 +915,20 @@ mod tests {
         let (rude, html_rude) = post_question(&backends.app(), "rude").await;
         let (broken, html_broken) = post_question(&backends.app(), "other").await;
 
-        assert_eq!(starting, StatusCode::BAD_GATEWAY);
+        // The thinking panel was already sent, so the status cannot change any more.
+        assert_eq!([starting, rude, broken], [StatusCode::OK; 3]);
         assert!(html_starting.contains("still starting up"));
         assert!(!html_starting.contains("secret detail"));
-        assert_eq!(rude, StatusCode::BAD_GATEWAY);
         assert!(html_rude.contains("the question is empty"));
-        assert_eq!(broken, StatusCode::BAD_GATEWAY);
         assert!(html_broken.contains("had a problem answering"));
+        assert!(
+            html_broken.contains(r#"class="results card failed""#),
+            "it hides the panel"
+        );
+        assert!(
+            html_broken.trim_end().ends_with("</html>"),
+            "the page is complete"
+        );
         assert!(
             !html_broken.contains("gpu-box"),
             "internal addresses stay in the log"
@@ -809,7 +945,7 @@ mod tests {
 
         let (status, html) = post_question(&app, "a table").await;
 
-        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert_eq!(status, StatusCode::OK);
         assert!(html.contains("could not reach the assistant"));
     }
 
@@ -1104,9 +1240,9 @@ mod tests {
         let (_, other, _) = get_with(&app, "/", &[("accept-language", "fr-FR")]).await;
 
         assert!(portuguese.contains("<html lang=\"pt-BR\">"));
-        assert!(portuguese.contains("Qual madeira devo usar?"));
+        assert!(portuguese.contains("Madeira Ideal"));
         assert!(portuguese.contains("Buscar madeiras"));
-        assert!(!portuguese.contains("Which wood"));
+        assert!(!portuguese.contains("Wood Match"));
         assert!(!headers.contains_key(header::SET_COOKIE));
         assert!(
             headers[header::VARY]
@@ -1114,7 +1250,7 @@ mod tests {
                 .unwrap()
                 .contains("accept-language")
         );
-        assert!(english.contains("<html lang=\"en\">") && english.contains("Which wood"));
+        assert!(english.contains("<html lang=\"en\">") && english.contains("Wood Match"));
         assert_eq!(
             other, english,
             "an unsupported language falls back to English"
@@ -1136,15 +1272,15 @@ mod tests {
         let (_, switched, switched_headers) =
             get_with(&app, "/?lang=en", &[("cookie", "lang=pt-br")]).await;
 
-        assert!(html.contains("Qual madeira devo usar?"));
+        assert!(html.contains("Madeira Ideal"));
         let cookie = headers[header::SET_COOKIE].to_str().unwrap();
         assert!(cookie.starts_with("lang=pt-br;") && cookie.contains("SameSite=Lax"));
         assert!(
-            back.contains("Qual madeira devo usar?"),
+            back.contains("Madeira Ideal"),
             "the cookie beats the browser"
         );
         assert!(!english_headers.contains_key(header::SET_COOKIE));
-        assert!(switched.contains("Which wood should I use?"));
+        assert!(switched.contains("Wood Match"));
         assert!(
             switched_headers[header::SET_COOKIE]
                 .to_str()

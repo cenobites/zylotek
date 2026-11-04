@@ -72,7 +72,7 @@ async fn the_site_stays_up_when_the_assistant_is_down() {
     let (browse, _) = get(&site, "/woods").await;
     let (home, _) = get(&site, "/").await;
 
-    assert_eq!(asked, 502);
+    assert_eq!(asked, 200, "the thinking panel was already sent");
     assert!(html.contains("could not reach the assistant"));
     assert_eq!((browse, home), (200, 200));
 }
@@ -137,18 +137,22 @@ async fn the_ranking_reaches_the_browser_before_the_explanation_is_written() {
         .await
         .unwrap();
     let first = String::from_utf8(response.chunk().await.unwrap().unwrap().to_vec()).unwrap();
-    let first_at = started.elapsed();
+    let mut ranked = String::new();
+    while !ranked.contains("<strong>Hard</strong>") {
+        ranked += &String::from_utf8_lossy(&response.chunk().await.unwrap().unwrap());
+    }
+    let ranked_at = started.elapsed();
     let mut rest = String::new();
     while let Some(chunk) = response.chunk().await.unwrap() {
         rest += &String::from_utf8_lossy(&chunk);
     }
 
-    assert!(first_at < pause, "the first bytes took {first_at:?}");
     assert!(
-        first.contains("<strong>Hard</strong>"),
-        "the cards are in the first chunk"
+        first.contains("Thinking…") && !first.contains("<strong>Hard</strong>"),
+        "the thinking panel comes first, on its own"
     );
-    assert!(!first.contains("wood suits a table."));
+    assert!(ranked_at < pause, "the ranking took {ranked_at:?}");
+    assert!(!ranked.contains("wood suits a table."));
     assert!(started.elapsed() >= pause, "the rest waited for the model");
     assert!(rest.contains("wood suits a table."));
     assert!(rest.trim_end().ends_with("</html>"));
