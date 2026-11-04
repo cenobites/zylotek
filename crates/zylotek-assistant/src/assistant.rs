@@ -140,18 +140,24 @@ impl Prepared {
             return None;
         }
         let facts = json!(self.recommendations);
+        // Small models drift into English unless the language is named, and named last.
+        let language = match self.requirements.language.as_str() {
+            "" => "the language the question is written in".to_owned(),
+            named => format!("{named}, the language the question is written in"),
+        };
 
         Some([
-            Message::system(
+            Message::system(format!(
                 "You are the Project Wood Recommender, an expert woodworker advising on which \
-                 Brazilian species to use for a project. Using only the facts given, in the \
-                 language of the question, say in at most 120 words why the top woods suit the \
+                 Brazilian species to use for a project. Write your whole answer in {language}. \
+                 Using only the facts given, say in at most 120 words why the top woods suit the \
                  project, the tradeoffs between them, which one is the better alternative for \
-                 which case, and what to watch for. 'fit' is 0 (worst) to 1 (best) among all Brazilian woods in the \
-                 database. Do not mention woods that are not listed and do not invent figures.",
-            ),
+                 which case, and what to watch for. 'fit' is 0 (worst) to 1 (best) among all \
+                 Brazilian woods in the database. Do not mention woods that are not listed and \
+                 do not invent figures."
+            )),
             Message::user(format!(
-                "Question: {}\n\nWoods, best first:\n{facts}",
+                "Question: {}\n\nWoods, best first:\n{facts}\n\nAnswer in {language}.",
                 self.question
             )),
         ])
@@ -305,6 +311,39 @@ mod tests {
         assert!(!schema);
         assert!(explain[1].content.contains("Hard scientificus"));
         assert!(explain[1].content.contains("a hard table"));
+    }
+
+    #[tokio::test]
+    async fn the_explanation_is_asked_for_in_the_language_of_the_question() {
+        let need = r#"{"language": "Brazilian Portuguese", "summary": "uma mesa dura", "priorities": [{"property": "hardness", "weight": 3}]}"#;
+        let named = ScriptedModel::new(vec![Ok(need.into()), Ok("ok".into())]);
+        let unnamed = ScriptedModel::new(vec![Ok(NEED.into()), Ok("ok".into())]);
+
+        let answer = assistant(named.clone(), 5)
+            .ask("quero uma mesa dura")
+            .await
+            .unwrap();
+        assistant(unnamed.clone(), 5)
+            .ask("a hard table")
+            .await
+            .unwrap();
+
+        assert_eq!(answer.summary, "uma mesa dura");
+        let calls = named.calls.lock().unwrap();
+        let (system, user) = (&calls[1].0[0].content, &calls[1].0[1].content);
+        assert!(system.contains("Write your whole answer in Brazilian Portuguese"));
+        assert!(
+            user.ends_with(
+                "Answer in Brazilian Portuguese, the language the question is written in."
+            )
+        );
+        let calls = unnamed.calls.lock().unwrap();
+        assert!(
+            calls[1].0[1]
+                .content
+                .ends_with("Answer in the language the question is written in."),
+            "without a name the model is still told to follow the question"
+        );
     }
 
     #[tokio::test]

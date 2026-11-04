@@ -225,6 +225,7 @@ mod tests {
     fn want(criteria: &[(Property, u8)]) -> Requirements {
         Requirements {
             summary: String::new(),
+            language: String::new(),
             criteria: criteria
                 .iter()
                 .map(|&(property, weight)| Criterion { property, weight })

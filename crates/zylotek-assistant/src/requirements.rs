@@ -12,10 +12,15 @@ const MAX_WEIGHT: i64 = 3;
 const MAX_AVOID: usize = 10;
 const MAX_AVOID_CHARS: usize = 60;
 const MAX_SUMMARY_CHARS: usize = 200;
+const MAX_LANGUAGE_CHARS: usize = 40;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Requirements {
+    /// The need in one sentence, in the language of the question.
     pub summary: String,
+    /// The language the question is written in, named in English ("Brazilian Portuguese");
+    /// empty when the model did not say. The explanation is written in it.
+    pub language: String,
     /// At most one entry per property, strongest weight kept, in the model's order.
     pub criteria: Vec<Criterion>,
     /// Lowercase name fragments of woods to leave out.
@@ -26,6 +31,8 @@ pub struct Requirements {
 struct Raw {
     #[serde(default)]
     summary: String,
+    #[serde(default)]
+    language: String,
     priorities: Vec<RawCriterion>,
     #[serde(default)]
     avoid: Vec<String>,
@@ -73,6 +80,12 @@ impl Requirements {
 
         Ok(Self {
             summary: raw.summary.trim().chars().take(MAX_SUMMARY_CHARS).collect(),
+            language: raw
+                .language
+                .trim()
+                .chars()
+                .take(MAX_LANGUAGE_CHARS)
+                .collect(),
             criteria,
             avoid,
         })
@@ -94,6 +107,7 @@ pub fn schema() -> Value {
     json!({
         "type": "object",
         "properties": {
+            "language": {"type": "string"},
             "summary": {"type": "string"},
             "priorities": {
                 "type": "array",
@@ -111,7 +125,7 @@ pub fn schema() -> Value {
             },
             "avoid": {"type": "array", "items": {"type": "string"}},
         },
-        "required": ["summary", "priorities", "avoid"],
+        "required": ["language", "summary", "priorities", "avoid"],
         "additionalProperties": false,
     })
 }
@@ -132,13 +146,19 @@ Properties:
 
 Give each property that matters a weight: 3 essential, 2 important, 1 nice to have. \
 Leave out properties that do not matter. \
-\"summary\" restates the need in one short English sentence. \
+\"language\" names, in English, the language the question is written in (\"English\", \"Brazilian Portuguese\", \"Spanish\"...). \
+\"summary\" restates the need in one short sentence written in that same language. \
 \"avoid\" lists names of woods the person does not want, lowercase; usually empty.
 
 Example question: a dining table for 12 people with traditional Japanese joinery.
-Example reply: {\"summary\": \"A large dining table joined without nails\", \
+Example reply: {\"language\": \"English\", \"summary\": \"A large dining table joined without nails\", \
 \"priorities\": [{\"property\": \"stability\", \"weight\": 3}, {\"property\": \"workability\", \"weight\": 3}, \
-{\"property\": \"stiffness\", \"weight\": 2}, {\"property\": \"hardness\", \"weight\": 2}], \"avoid\": []}";
+{\"property\": \"stiffness\", \"weight\": 2}, {\"property\": \"hardness\", \"weight\": 2}], \"avoid\": []}
+
+Example question: quero um deck de 4x5 metros para uma área chuvosa.
+Example reply: {\"language\": \"Brazilian Portuguese\", \"summary\": \"Um deck externo para clima chuvoso\", \
+\"priorities\": [{\"property\": \"stability\", \"weight\": 3}, {\"property\": \"hardness\", \"weight\": 3}, \
+{\"property\": \"strength\", \"weight\": 2}], \"avoid\": []}";
 
 #[cfg(test)]
 mod tests {
@@ -154,13 +174,14 @@ mod tests {
 
     #[test]
     fn it_reads_a_clean_reply() {
-        let reply = r#"{"summary": " A table ", "priorities": [
+        let reply = r#"{"language": " Brazilian Portuguese ", "summary": " A table ", "priorities": [
             {"property": "stability", "weight": 3}, {"property": "hardness", "weight": 1}],
             "avoid": [" Ipê ", ""]}"#;
 
         let requirements = Requirements::parse(reply).unwrap();
 
         assert_eq!(requirements.summary, "A table");
+        assert_eq!(requirements.language, "Brazilian Portuguese");
         assert_eq!(
             criteria(&requirements),
             [(Property::Stability, 3), (Property::Hardness, 1)]
@@ -176,6 +197,7 @@ mod tests {
 
         assert_eq!(criteria(&requirements), [(Property::Lightness, 2)]);
         assert_eq!(requirements.summary, "", "the summary is optional");
+        assert_eq!(requirements.language, "", "so is the language");
         assert!(requirements.avoid.is_empty());
     }
 
@@ -216,9 +238,10 @@ mod tests {
     }
 
     #[test]
-    fn the_summary_is_cut_to_a_sane_length() {
+    fn the_summary_and_language_are_cut_to_a_sane_length() {
         let reply = json!({
             "summary": "s".repeat(1000),
+            "language": "l".repeat(1000),
             "priorities": [{"property": "hardness", "weight": 1}],
         })
         .to_string();
@@ -226,6 +249,7 @@ mod tests {
         let requirements = Requirements::parse(&reply).unwrap();
 
         assert_eq!(requirements.summary.chars().count(), MAX_SUMMARY_CHARS);
+        assert_eq!(requirements.language.chars().count(), MAX_LANGUAGE_CHARS);
     }
 
     #[test]
