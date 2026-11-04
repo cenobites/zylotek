@@ -298,3 +298,22 @@ fn base64_encode(text: &str) -> String {
     }
     out
 }
+
+#[test]
+fn a_config_file_that_is_missing_or_malformed_stops_the_binary() {
+    let dir = TempDir::new().unwrap();
+    let bad = dir.path().join("bad.toml");
+    fs::write(&bad, "[database\n").unwrap();
+    for (path, message) in [
+        (dir.path().join("missing.toml"), "cannot read config file"),
+        (bad, "invalid config file"),
+    ] {
+        let out = Command::new(API)
+            .arg("--config-file")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        assert!(String::from_utf8_lossy(&out.stderr).contains(message));
+    }
+}

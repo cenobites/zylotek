@@ -195,7 +195,7 @@ three steps (`assistant.rs`):
    caller can show it as it is written; the ranking is already complete by then.
 
 `llm.rs` hides the model behind a `Model` trait; `OpenAiCompatible` speaks the chat-completions
-protocol of llama.cpp's `llama-server` (also vLLM, Ollama, LM Studio). `http.rs` serves
+protocol of Ollama (also llama.cpp's `llama-server`, vLLM, LM Studio). `http.rs` serves
 `GET /health`, `POST /v1/ask` (one JSON answer) and `POST /v1/ask/stream` (server-sent events:
 `answer`, then `token`s, then `done`; see `contracts::assistant::events`), the last two behind
 an optional shared bearer token. `llm.rs` streams from the model by reading its SSE body

@@ -34,7 +34,7 @@ cargo run -p zylotek-api
 cargo build --workspace
 ./target/debug/zylotek-cli api                               # same as zylotek-api
 ./target/debug/zylotek-cli webapp --listen 127.0.0.1:3000   # same as zylotek-webapp --listen …
-./target/debug/zylotek-cli assistant --model-url http://gpu-box:8081
+./target/debug/zylotek-cli assistant --model-url http://gpu-box:11434
 ```
 
 `sync` and `zylotek-api` share one database: `sqlite:zylotek.db` in the working directory unless you
@@ -153,21 +153,19 @@ curl -X POST localhost:8080/api/v1/woods \
 `zylotek-assistant` answers questions in plain language ("a table for 12 with Japanese
 joinery") from the catalogue of `zylotek-api`. A language model only reads the question and
 explains the answer; the ranking is arithmetic over the database. Run any OpenAI-compatible
-server on the machine with the GPU, for example llama.cpp. The model must fit in the GPU's
+server on the machine with the GPU, for example Ollama. The model must fit in the GPU's
 memory (see the comment below for the reference machine: an MX150 with 4 GB of VRAM):
 
 ```bash
 # On the GPU machine (4 GB VRAM, 16 GB RAM): an instruction-tuned 3B model, 4-bit quantized.
-# It is about 2 GB, so `-ngl 99` keeps all of it on the GPU. Larger models do not fit in 4 GB.
-pip install -U huggingface_hub
-hf auth login
-hf download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf
-
-llama-server -m qwen2.5-3b-instruct-q4_k_m.gguf --port 8081 --host 0.0.0.0 -ngl 99
+# It is about 2 GB, so Ollama keeps all of it on the GPU. Larger models do not fit in 4 GB.
+# OLLAMA_HOST=0.0.0.0 lets other machines reach it (default port 11434).
+ollama pull qwen2.5:3b
+OLLAMA_HOST=0.0.0.0 ollama serve
 
 # Anywhere that can reach the API and the model server
 cargo run -p zylotek-assistant -- \
-  --api-url http://localhost:8080 --model-url http://gpu-box:8081 \
+  --api-url http://localhost:8080 --model-url http://gpu-box:11434 \
   --listen 0.0.0.0:8090 --token "$(openssl rand -hex 24)"
 
 curl -s localhost:8090/v1/ask -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
@@ -187,7 +185,7 @@ the assistant running:
 
 ```bash
 cargo run -p zylotek-api                                # :8080
-cargo run -p zylotek-assistant -- --model-url http://gpu-box:8081   # :8090
+cargo run -p zylotek-assistant -- --model-url http://gpu-box:11434   # :8090
 cargo run -p zylotek-webapp -- --assistant-token "$TOKEN"           # :3000
 ```
 
@@ -200,6 +198,7 @@ writes itself in as the model produces it.
 ## Development
 
 ```bash
+make dev                                                # API, assistant and website, restarted on change
 make build                                              # build the CLI
 cargo test --workspace                                  # tests (none yet)
 cargo clippy --workspace --all-targets -- -D warnings   # lint gate

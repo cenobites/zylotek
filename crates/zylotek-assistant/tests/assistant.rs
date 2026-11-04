@@ -215,3 +215,14 @@ fn a_port_that_is_taken_is_a_clean_failure() {
         .failure()
         .stderr(predicate::str::contains("error:"));
 }
+
+#[test]
+fn a_config_file_that_is_missing_stops_the_binary() {
+    let missing = std::env::temp_dir().join("zylotek-no-such.toml");
+    Command::cargo_bin("zylotek-assistant")
+        .unwrap()
+        .args(["--config-file", missing.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot read config file"));
+}

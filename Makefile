@@ -2,7 +2,7 @@
         test test-unit test-integration test-known-bugs \
         cov cov-unit cov-integration cov-html \
         bench bench-check fuzz fuzz-build \
-        clean help
+        dev clean help
 
 # =============================================================================
 # Setup
@@ -10,7 +10,7 @@
 
 setup: prek-install
 	cargo install --locked prek sccache cargo-llvm-cov cargo-fuzz cargo-insta \
-	cargo-audit cargo-outdated
+	cargo-audit cargo-outdated mprocs watchexec-cli
 	rustup toolchain install nightly --profile minimal  # cargo-fuzz needs it
 
 # =============================================================================
@@ -35,6 +35,15 @@ prek-install:
 
 migrate:
 	cargo run -p zylotek-cli -- db migrate
+
+# =============================================================================
+# Development
+# =============================================================================
+
+# The whole stack (API, assistant, web app), each restarting when its sources change.
+# Configure it in .env.toml; see mprocs.yaml for what each service watches.
+dev:
+	mprocs
 
 # =============================================================================
 # Tests
@@ -127,6 +136,9 @@ help:
 	@echo ""
 	@echo "Setup:"
 	@echo "  make setup             - Initial setup"
+	@echo ""
+	@echo "Development:"
+	@echo "  make dev               - API + assistant + web app, restarted on change"
 	@echo ""
 	@echo "Build targets:"
 	@echo "  make build             - Development build (fast)"

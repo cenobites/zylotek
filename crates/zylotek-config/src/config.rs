@@ -15,7 +15,7 @@
 //! issuer = "http://localhost:8080"
 //!
 //! [assistant]
-//! model_url = "http://gpu-box:8081"
+//! model_url = "http://gpu-box:11434"
 //! token = "secret"
 //! ```
 //!
@@ -119,8 +119,8 @@ impl Default for AssistantConfig {
         Self {
             url: "http://localhost:8090".to_owned(),
             listen: SocketAddr::from(([127, 0, 0, 1], 8090)),
-            model_url: "http://localhost:8081".to_owned(),
-            model_name: "local".to_owned(),
+            model_url: "http://localhost:11434".to_owned(),
+            model_name: "qwen2.5:3b".to_owned(),
             model_api_key: None,
             token: None,
             refresh_secs: 300,
@@ -240,7 +240,7 @@ mod tests {
             signing_key = "k.pem"
 
             [assistant]
-            model_url = "http://gpu-box:8081"
+            model_url = "http://gpu-box:11434"
             token = "secret"
             listen = "0.0.0.0:9000"
             "#,
@@ -250,10 +250,10 @@ mod tests {
         assert_eq!(config.database.url.as_deref(), Some("sqlite::memory:"));
         assert_eq!(config.oauth.signing_key, Some(PathBuf::from("k.pem")));
         assert_eq!(config.oauth.clients, None);
-        assert_eq!(config.assistant.model_url, "http://gpu-box:8081");
+        assert_eq!(config.assistant.model_url, "http://gpu-box:11434");
         assert_eq!(config.assistant.token.as_deref(), Some("secret"));
         assert_eq!(config.assistant.listen.to_string(), "0.0.0.0:9000");
-        assert_eq!(config.assistant.model_name, "local");
+        assert_eq!(config.assistant.model_name, "qwen2.5:3b");
     }
 
     #[test]

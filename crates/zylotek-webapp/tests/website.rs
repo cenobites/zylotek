@@ -153,3 +153,17 @@ async fn the_ranking_reaches_the_browser_before_the_explanation_is_written() {
     assert!(rest.contains("wood suits a table."));
     assert!(rest.trim_end().ends_with("</html>"));
 }
+
+#[test]
+fn a_config_file_that_is_missing_or_malformed_stops_the_binary() {
+    let dir = std::env::temp_dir();
+    Command::cargo_bin("zylotek-webapp")
+        .unwrap()
+        .args([
+            "--config-file",
+            dir.join("zylotek-no-such.toml").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot read config file"));
+}

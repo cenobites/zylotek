@@ -1,5 +1,5 @@
 //! The language model behind a small trait, and an adapter for any server that speaks the
-//! OpenAI chat-completions protocol — llama.cpp's `llama-server`, vLLM, Ollama, LM Studio.
+//! OpenAI chat-completions protocol — Ollama, llama.cpp's `llama-server`, vLLM, LM Studio.
 
 use std::{pin::Pin, time::Duration};
 

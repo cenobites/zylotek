@@ -13,6 +13,7 @@ zylotek-infrastructure = { workspace = true }
 askama = { workspace = true }
 axum = { workspace = true }
 clap = { workspace = true }
+zylotek-config = { workspace = true }
 form_urlencoded = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }

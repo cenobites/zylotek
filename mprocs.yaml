@@ -1,0 +1,28 @@
+# Development stack: each service restarts when its sources change.
+# Run with `make dev` (needs `cargo install --locked mprocs watchexec-cli`).
+# Settings come from .env.toml (see .env.sample.toml); ZYLOTEK_* variables override it.
+#
+# Shared crates are watched by every service; a service's own crate only by that service.
+# Askama templates are compiled in, so crates/zylotek-webapp/templates triggers a rebuild too.
+procs:
+  api:
+    shell: >-
+      watchexec --restart --stop-signal SIGINT --exts rs,toml
+      -w crates/zylotek-domain -w crates/zylotek-application -w crates/zylotek-infrastructure
+      -w crates/zylotek-contracts -w crates/zylotek-config -w crates/zylotek-api
+      -- cargo run -p zylotek-api -- --config-file .env.toml
+  assistant:
+    shell: >-
+      until curl -sf http://localhost:8080/health >/dev/null; do sleep 1; done;
+      watchexec --restart --stop-signal SIGINT --exts rs,toml
+      -w crates/zylotek-domain -w crates/zylotek-infrastructure
+      -w crates/zylotek-contracts -w crates/zylotek-config -w crates/zylotek-assistant
+      -- cargo run -p zylotek-assistant -- --config-file .env.toml
+  webapp:
+    shell: >-
+      until curl -sf http://localhost:8080/health >/dev/null \
+        && curl -sf http://localhost:8090/health >/dev/null; do sleep 1; done;
+      watchexec --restart --stop-signal SIGINT --exts rs,toml,html,css,js
+      -w crates/zylotek-infrastructure -w crates/zylotek-contracts -w crates/zylotek-config
+      -w crates/zylotek-webapp
+      -- cargo run -p zylotek-webapp -- --config-file .env.toml
