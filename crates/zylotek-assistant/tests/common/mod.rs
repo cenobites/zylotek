@@ -73,13 +73,31 @@ pub async fn api_with(woods: &[(&str, f64)]) -> Api {
     Api { url, task }
 }
 
-/// A model server that reads the need as `NEED` and then explains it in one sentence.
+/// What the model answers when asked to put the summary in Portuguese.
+pub const TRANSLATED: &str = "uma mesa dura";
+
+/// A model server that reads the need as `NEED`, names the language Portuguese, translates the
+/// summary to `TRANSLATED`, and then explains it in one sentence.
 pub async fn model() -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
         .and(body_string_contains("response_format"))
         .respond_with(completion(NEED))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_string_contains("Name the language"))
+        .respond_with(completion("Portuguese"))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_string_contains(
+            "translate one sentence into Portuguese",
+        ))
+        .respond_with(completion(TRANSLATED))
         .mount(&server)
         .await;
     Mock::given(method("POST"))

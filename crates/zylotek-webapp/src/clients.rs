@@ -19,9 +19,10 @@ use crate::error::BackendError;
 
 const API: &str = "the wood API";
 const ASSISTANT: &str = "the assistant";
-/// The assistant calls a model twice, each allowed 120 s (its `llm::REQUEST_TIMEOUT`); a bit
-/// more than both, so the assistant's own error arrives before this gives up.
-const ASSISTANT_TIMEOUT: Duration = Duration::from_secs(270);
+/// The assistant calls a model up to four times (read the need, name the language, translate the
+/// summary, explain), each allowed 120 s (its `llm::REQUEST_TIMEOUT`); a bit more than all of
+/// them, so the assistant's own error arrives before this gives up.
+const ASSISTANT_TIMEOUT: Duration = Duration::from_secs(510);
 const API_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long the whole catalogue is reused before it is fetched again.
 const CATALOGUE_TTL: Duration = Duration::from_secs(60);

@@ -5,7 +5,9 @@
 mod common;
 
 use assert_cmd::Command;
-use common::{NEED, api_with, ask, ask_stream, completion, health, model, spawn, until_synced};
+use common::{
+    NEED, TRANSLATED, api_with, ask, ask_stream, completion, health, model, spawn, until_synced,
+};
 use predicates::prelude::*;
 use serde_json::json;
 use wiremock::{
@@ -25,7 +27,10 @@ async fn a_question_is_answered_from_the_catalogue_pulled_from_the_api() {
     let (status, answer) = ask(&assistant, None, "I need a hard table").await;
 
     assert_eq!(status, 200, "{answer}");
-    assert_eq!(answer["summary"], "a hard table");
+    assert_eq!(
+        answer["summary"], TRANSLATED,
+        "translated into the language of the question"
+    );
     assert_eq!(answer["catalogue_size"], 3);
     let names: Vec<_> = answer["recommendations"]
         .as_array()

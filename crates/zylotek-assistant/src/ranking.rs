@@ -157,6 +157,23 @@ pub fn figure(property: Property, wood: &WoodResponse) -> Option<f64> {
     value.filter(|value| value.is_finite())
 }
 
+/// A figure as the explanation prompt shows it: what it measures and which way is better, so
+/// the model does not read a density as a "lightness score" or a shrinkage as a quality.
+pub fn describe(property: Property, value: f64) -> String {
+    match property {
+        Property::Hardness => format!("hardness (Janka) {value:.0}, higher is harder"),
+        Property::Strength => format!("bending strength {value:.0}, higher is stronger"),
+        Property::Stiffness => {
+            format!("stiffness (modulus of elasticity) {value:.0}, higher is stiffer")
+        }
+        Property::Stability => {
+            format!("dimensional stability, volumetric shrinkage {value:.1}%, lower is more stable")
+        }
+        Property::Lightness => format!("lightness, density {value:.2} g/cm³, lower is lighter"),
+        Property::Workability => format!("workability {value:.2} out of 1, higher is easier"),
+    }
+}
+
 /// The mean of the hand-work ratings (planing, sanding, clamping, drilling), 0 to 1.
 fn workability(wood: &WoodResponse) -> Option<f64> {
     let surface = &wood.details.workabilities.surface_finishing;
@@ -225,7 +242,6 @@ mod tests {
     fn want(criteria: &[(Property, u8)]) -> Requirements {
         Requirements {
             summary: String::new(),
-            language: String::new(),
             criteria: criteria
                 .iter()
                 .map(|&(property, weight)| Criterion { property, weight })

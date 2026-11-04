@@ -210,7 +210,7 @@ Answers questions such as "which wood for a table with Japanese joinery for 12 s
 is its own binary, meant to run next to the GPU, and depends on `zylotek-contracts` only: the
 catalogue arrives over HTTP from `GET /api/v1/woods` (public, so no token), page by page, and
 is swapped in as one immutable snapshot every few minutes (`catalogue.rs`). A question takes
-three steps (`assistant.rs`):
+three steps (`assistant.rs`), with a language step between 2 and 3:
 
 1. **Understand.** The model, constrained by a JSON schema, turns the question into weighted
    properties (hardness, strength, stiffness, stability, lightness, workability) and woods to
@@ -219,7 +219,11 @@ three steps (`assistant.rs`):
    woods that have the figure, and a wood's score is the weighted mean, with a missing figure
    counting as zero. The model never chooses a wood, so it cannot invent one and the same
    question always yields the same list.
-3. **Explain.** The model writes a short answer from the ranked facts. If this fails, the
+   *Language.* A plain call names the question's language (asked together with step 1, the
+   small model called a Portuguese question "English"). Unless it is English, the summary
+   from step 1 is translated into it, the question riding along so its own words survive. A
+   failure at either point keeps the summary as it was.
+3. **Explain.** The model writes a short answer from the ranked facts. It is given numbered, labelled facts, best first, and the language named above. If this fails, the
    ranking is returned without it. `ask_stream` hands the explanation back as a stream so a
    caller can show it as it is written; the ranking is already complete by then.
 

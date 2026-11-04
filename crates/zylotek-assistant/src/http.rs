@@ -32,14 +32,18 @@ use zylotek_contracts::{
     assistant::{AskRequest, AskResponse, AssistantHealth, events},
 };
 
-use crate::{assistant::Assistant, error::AskError, llm::REQUEST_TIMEOUT};
+use crate::{
+    assistant::{Assistant, MODEL_CALLS},
+    error::AskError,
+    llm::REQUEST_TIMEOUT,
+};
 
 /// A question is at most 1000 characters; this leaves room for JSON and multi-byte text.
 const MAX_BODY_BYTES: usize = 8 * 1024;
-/// An ask makes up to two model calls before it answers (reading the need, then explaining or
-/// starting to). Longer than both, so a slow model, one still loading say, ends in the model
-/// client's own timeout instead of the request being dropped mid-load.
-const ASK_TIMEOUT: Duration = Duration::from_secs(2 * REQUEST_TIMEOUT.as_secs() + 10);
+/// An ask makes up to `MODEL_CALLS` model calls before it answers. Longer than all of them, so a
+/// slow model, one still loading say, ends in the model client's own timeout instead of the
+/// request being dropped mid-load.
+const ASK_TIMEOUT: Duration = Duration::from_secs(MODEL_CALLS * REQUEST_TIMEOUT.as_secs() + 10);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
@@ -313,7 +317,15 @@ mod tests {
 
     #[tokio::test]
     async fn asking_returns_a_ranked_answer() {
-        let app = app(vec![Ok(NEED.into()), Ok("Hard wins.".into())], None, true);
+        let app = app(
+            vec![
+                Ok(NEED.into()),
+                Ok("English".into()),
+                Ok("Hard wins.".into()),
+            ],
+            None,
+            true,
+        );
 
         let (status, body, _) = call(&app, ask_request(&question("a hard table"), None)).await;
 
@@ -350,7 +362,11 @@ mod tests {
     async fn a_slow_model_is_waited_for_instead_of_cut_off() {
         let catalogue = Arc::new(Catalogue::new());
         catalogue.replace(vec![hardness("Hard", 1500.0), hardness("Soft", 300.0)]);
-        let model = ScriptedModel::new(vec![Ok(NEED.into()), Ok("Hard wins.".into())]);
+        let model = ScriptedModel::new(vec![
+            Ok(NEED.into()),
+            Ok("English".into()),
+            Ok("Hard wins.".into()),
+        ]);
         let slow = Arc::new(SlowModel(model, Duration::from_secs(60)));
         let app = router(Arc::new(Assistant::new(slow, catalogue, 5)), None);
 
@@ -358,12 +374,16 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["explanation"], "Hard wins.");
-        assert!(ASK_TIMEOUT > 2 * REQUEST_TIMEOUT);
+        assert!(ASK_TIMEOUT > 3 * REQUEST_TIMEOUT, "room for every call");
     }
 
     #[tokio::test]
     async fn with_a_token_configured_only_the_right_bearer_gets_in() {
-        let app = app(vec![Ok(NEED.into()), Ok("ok".into())], Some("s3cret"), true);
+        let app = app(
+            vec![Ok(NEED.into()), Ok("English".into()), Ok("ok".into())],
+            Some("s3cret"),
+            true,
+        );
         let body = question("a hard table");
 
         for authorization in [
@@ -518,7 +538,11 @@ mod tests {
     #[tokio::test]
     async fn the_stream_sends_the_ranking_then_the_words_then_done() {
         let app = app(
-            vec![Ok(NEED.into()), Ok("Hard wins easily.".into())],
+            vec![
+                Ok(NEED.into()),
+                Ok("English".into()),
+                Ok("Hard wins easily.".into()),
+            ],
             None,
             true,
         );
@@ -559,7 +583,11 @@ mod tests {
     #[tokio::test]
     async fn a_model_that_stops_midway_is_reported_inside_the_stream() {
         let app = app(
-            vec![Ok(NEED.into()), Ok("Hard is <<cut>>".into())],
+            vec![
+                Ok(NEED.into()),
+                Ok("English".into()),
+                Ok("Hard is <<cut>>".into()),
+            ],
             None,
             true,
         );
