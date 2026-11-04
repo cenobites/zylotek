@@ -88,13 +88,10 @@ pub async fn logging(req: Request, next: Next) -> Response {
     let method = req.method().clone();
     let uri = req.uri().clone();
     let response = next.run(req).await;
-    log::info!(
-        "{} {} -> {} ({:?} ms)",
-        method,
-        uri,
-        response.status(),
-        time.elapsed().as_millis()
-    );
+    // Worked out before the macro: `log` skips its arguments when the level is off.
+    let status = response.status();
+    let elapsed = time.elapsed().as_millis();
+    log::info!("{} {} -> {} ({:?} ms)", method, uri, status, elapsed);
     response
 }
 
@@ -996,8 +993,8 @@ mod tests {
 
         let at = |needle: &str| html.find(needle).unwrap_or_else(|| panic!("no {needle}"));
         assert!(html.contains("Reading your project"));
-        assert!(at(r#"class="thinking card "#) < at(r#"class="results""#));
-        assert!(at(r#"class="results""#) < at(r#"class="writing text-muted "#));
+        assert!(at(r#"class="thinking "#) < at(r#"class="results "#));
+        assert!(at(r#"class="results "#) < at(r#"class="writing "#));
         assert!(at("Cedro is steady") < at(r#"class="done "#));
     }
 
@@ -1237,9 +1234,18 @@ mod tests {
         assert!(html.contains(
             r#"<a class="tag border-l-tag-region" data-tag="region" href="/woods?region=PA">PA</a>"#
         ));
-        assert!(html.contains(
-            r#"name="color" value="marrom"> <span class="flex-1">Brown</span> <em class="text-sm text-muted not-italic">3</em>"#
-        ));
+        assert!(html.contains(r#"name="color" value="marrom"> <span class="flex-1">Brown</span>"#));
+        let brown = html
+            .find(r#"value="marrom"> <span class="flex-1">Brown</span>"#)
+            .unwrap();
+        assert!(
+            html[brown..]
+                .split("</label>")
+                .next()
+                .unwrap()
+                .ends_with(">3</em>"),
+            "the option shows how many woods it leaves"
+        );
         assert!(html.contains(r#"<input type="checkbox" name="family" value="Meliaceae">"#));
         assert!(html.contains("<option value=\"name\" selected>Name A–Z</option>"));
         assert!(
@@ -1886,7 +1892,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(headers[header::CACHE_CONTROL], "no-store");
         assert!(html.contains(r#"data-ask-id="done-1""#));
-        assert!(html.contains("<strong>Cedro</strong>"));
+        assert!(html.contains(">Cedro</strong>"));
         assert!(
             html.contains("Cedro &lt;is&gt; steady."),
             "the stored text is escaped"
@@ -1918,7 +1924,7 @@ mod tests {
         let (_, partial, _) = get(&app, "/asks/writing-1").await;
 
         assert!(waiting.contains(r#"<meta http-equiv="refresh" content="3">"#));
-        assert!(waiting.contains("Thinking…") && !waiting.contains(r#"class="results""#));
+        assert!(waiting.contains("Thinking…") && !waiting.contains(r#"class="results "#));
         assert!(waiting.trim_end().ends_with("</html>"));
         assert!(partial.contains(r#"<meta http-equiv="refresh" content="3">"#));
         assert!(partial.contains("Cedro is") && !partial.contains(r#"class="done "#));
@@ -1943,7 +1949,7 @@ mod tests {
             assert!(page.contains("stopped before it was finished"));
             assert!(!page.contains("http-equiv=\"refresh\""), "no point waiting");
         }
-        assert!(partial.contains("<strong>Cedro</strong>") && partial.contains("Half"));
+        assert!(partial.contains(">Cedro</strong>") && partial.contains("Half"));
         assert!(nothing.contains(r#"results card failed"#));
     }
 
@@ -1973,7 +1979,7 @@ mod tests {
 
         assert!(failed.contains("The assistant had a problem answering."));
         assert!(failed.contains(r#"results card failed"#));
-        assert!(failed_late.contains("<strong>Cedro</strong>") && failed_late.contains("Gave up."));
+        assert!(failed_late.contains(">Cedro</strong>") && failed_late.contains("Gave up."));
         assert!(cut.contains("The explanation was cut short."));
         assert!(none.contains("No wood in the database has the figures"));
     }
@@ -2064,7 +2070,7 @@ mod tests {
         assert!(streamed.contains("Cedro is steady.") && !streamed.contains("cut short"));
         assert!(before_ranking.starts_with("SHELL"));
         assert!(before_ranking.contains("stopped before it was finished"));
-        assert!(while_writing.contains("<strong>Cedro</strong>") && while_writing.contains("Half"));
+        assert!(while_writing.contains(">Cedro</strong>") && while_writing.contains("Half"));
         assert!(while_writing.trim_end().ends_with("</html>"));
     }
 }

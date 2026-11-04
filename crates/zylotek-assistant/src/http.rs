@@ -77,13 +77,10 @@ pub async fn logging_middleware(req: Request, next: Next) -> Response {
     let method = req.method().clone();
     let uri = req.uri().clone();
     let response = next.run(req).await;
-    log::info!(
-        "{} {} -> {} ({:?} ms)",
-        method,
-        uri,
-        response.status(),
-        time.elapsed().as_millis()
-    );
+    // Worked out before the macro: `log` skips its arguments when the level is off.
+    let status = response.status();
+    let elapsed = time.elapsed().as_millis();
+    log::info!("{} {} -> {} ({:?} ms)", method, uri, status, elapsed);
     response
 }
 

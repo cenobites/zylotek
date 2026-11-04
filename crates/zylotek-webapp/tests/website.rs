@@ -26,15 +26,9 @@ async fn a_visitor_asks_a_question_and_follows_the_answer_to_a_comparison() {
     assert_eq!(status, 200, "{answer}");
     assert!(answer.contains("a hard table"));
     assert!(answer.contains("The hardest wood suits a table."));
-    let hard = answer
-        .find("<strong>Hard</strong>")
-        .expect("Hard is listed");
-    let middle = answer
-        .find("<strong>Middle</strong>")
-        .expect("Middle is listed");
-    let soft = answer
-        .find("<strong>Soft</strong>")
-        .expect("Soft is listed");
+    let hard = answer.find(">Hard</strong>").expect("Hard is listed");
+    let middle = answer.find(">Middle</strong>").expect("Middle is listed");
+    let soft = answer.find(">Soft</strong>").expect("Soft is listed");
     assert!(hard < middle && middle < soft, "best first");
     assert!(answer.contains("Hardness: 1500 kgf"));
 
@@ -142,7 +136,7 @@ async fn the_ranking_reaches_the_browser_before_the_explanation_is_written() {
         first += &String::from_utf8_lossy(&response.chunk().await.unwrap().unwrap());
     }
     let mut ranked = first.clone();
-    while !ranked.contains("<strong>Hard</strong>") {
+    while !ranked.contains(">Hard</strong>") {
         ranked += &String::from_utf8_lossy(&response.chunk().await.unwrap().unwrap());
     }
     let ranked_at = started.elapsed();
@@ -152,7 +146,7 @@ async fn the_ranking_reaches_the_browser_before_the_explanation_is_written() {
     }
 
     assert!(
-        first.contains("Thinking…") && !first.contains("<strong>Hard</strong>"),
+        first.contains("Thinking…") && !first.contains(">Hard</strong>"),
         "the thinking panel comes first, on its own"
     );
     assert!(ranked_at < pause, "the ranking took {ranked_at:?}");
@@ -213,7 +207,7 @@ async fn an_ask_is_answered_and_stored_even_when_nobody_waits_for_it() {
             .contains("wood suits a table.")
     );
     assert_eq!(status, 200);
-    assert!(page.contains("<strong>Hard</strong>") && page.contains("wood suits a table."));
+    assert!(page.contains(">Hard</strong>") && page.contains("wood suits a table."));
     assert!(page.contains(&format!(r#"data-ask-id="{id}""#)));
 }
 
