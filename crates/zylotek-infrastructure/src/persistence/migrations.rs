@@ -24,11 +24,9 @@ pub fn cli(args: Vec<&str>) -> Result<(), InfrastructureError> {
         Ok(())
     });
 
-    let _ = rt
-        .block_on(handle)
-        .map_err(|e| InfrastructureError::Fatal(e.to_string()))?;
-
-    Ok(())
+    // The join error is a panic or a cancelled task; the task's own result is the real outcome.
+    rt.block_on(handle)
+        .map_err(|e| InfrastructureError::Fatal(e.to_string()))?
 }
 
 #[cfg(test)]
@@ -48,9 +46,7 @@ mod tests {
         let _ = cli(vec!["migration", "apply"]);
     }
 
-    // `cli` drops the spawned task's result, so a failed config load still exits 0.
     #[test]
-    #[ignore = "known bug: persistence::cli swallows the inner task error"]
     fn cli_reports_a_missing_toasty_config() {
         let error = cli(vec!["migration", "apply"]).unwrap_err();
 

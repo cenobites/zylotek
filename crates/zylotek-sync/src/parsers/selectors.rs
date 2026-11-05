@@ -104,14 +104,13 @@ pub(crate) fn table_rows_by_heading(
             .to_string();
 
         if title == heading.to_lowercase() {
-            let parent = h3.parent().unwrap();
-            let parent = scraper::ElementRef::wrap(parent).unwrap();
+            let table = h3
+                .parent()
+                .and_then(ElementRef::wrap)
+                .and_then(|parent| parent.select(&table_selector).next())
+                .ok_or_else(|| anyhow!("table {heading} has no table next to its heading"))?;
 
-            return Ok(table_rows(
-                parent.select(&table_selector).next().unwrap(),
-                &row_selector,
-                &cell_selector,
-            ));
+            return Ok(table_rows(table, &row_selector, &cell_selector));
         }
     }
 
@@ -209,6 +208,18 @@ mod tests {
         let rows = table_rows_by_heading(root(&document), "TÍTULO").unwrap();
 
         assert_eq!(rows, vec![vec!["h1", "h2"], vec!["a", "b"]]);
+    }
+
+    #[test]
+    fn table_rows_by_heading_fails_when_the_heading_has_no_table() {
+        let document = Html::parse_document("<body><div><h3>Título</h3></div></body>");
+
+        let error = table_rows_by_heading(root(&document), "Título").unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "table Título has no table next to its heading"
+        );
     }
 
     #[test]

@@ -7,7 +7,9 @@
 use libfuzzer_sys::fuzz_target;
 use zylotek_contracts::woods::WoodResponse;
 use zylotek_webapp::{
+    browse::{Entry, Query},
     clients::is_id,
+    i18n::Lang,
     pages::{compare_ids, escape},
     view,
 };
@@ -36,12 +38,17 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 
+    // Whatever is in the address bar reads as a query without panicking.
+    let query = Query::parse(Some(text));
+
     if let Ok(wood) = serde_json::from_str::<WoodResponse>(text) {
-        let _ = view::facts(&wood);
-        let _ = view::row(&wood);
-        let detail = view::detail(&wood);
-        for link in [&detail.image, &detail.source_url].into_iter().flatten() {
-            assert!(link.starts_with("http://") || link.starts_with("https://"));
+        for lang in [Lang::En, Lang::PtBr] {
+            let _ = view::facts(&wood, lang);
+            let _ = view::item(&Entry::new(&wood), &query, lang);
+            let detail = view::detail(&wood, std::slice::from_ref(&wood), lang);
+            for link in [&detail.image, &detail.source_url].into_iter().flatten() {
+                assert!(link.starts_with("http://") || link.starts_with("https://"));
+            }
         }
     }
 });

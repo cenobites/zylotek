@@ -15,7 +15,7 @@ use libfuzzer_sys::fuzz_target;
 use tokio::runtime::Runtime;
 use tower::ServiceExt;
 use zylotek_api::{auth::testing, build_state, router::router};
-use zylotek_domain::testing::InMemoryWoodRepository;
+use zylotek_domain::testing::{InMemoryAskRepository, InMemoryWoodRepository};
 
 #[derive(Debug, Arbitrary)]
 struct Input {
@@ -50,6 +50,7 @@ fn harness() -> &'static Harness {
         let router = runtime.block_on(async {
             router(build_state(
                 Arc::new(InMemoryWoodRepository::new()),
+                Arc::new(InMemoryAskRepository::new()),
                 testing::auth(),
             ))
         });

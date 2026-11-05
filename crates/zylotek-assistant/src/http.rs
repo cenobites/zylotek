@@ -366,14 +366,20 @@ mod tests {
             Ok(NEED.into()),
             Ok("English".into()),
             Ok("Hard wins.".into()),
+            Ok(NEED.into()),
+            Ok("English".into()),
+            Ok("Streamed.".into()),
         ]);
         let slow = Arc::new(SlowModel(model, Duration::from_secs(60)));
         let app = router(Arc::new(Assistant::new(slow, catalogue, 5)), None);
 
         let (status, body, _) = call(&app, ask_request(&question("a hard table"), None)).await;
+        let (streamed, events, _) = stream_text(&app, &question("a hard table"), None).await;
 
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["explanation"], "Hard wins.");
+        assert_eq!(streamed, StatusCode::OK, "{events}");
+        assert!(events.contains("Streamed."), "the stream route waits too");
         assert!(ASK_TIMEOUT > 3 * REQUEST_TIMEOUT, "room for every call");
     }
 

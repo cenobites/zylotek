@@ -139,9 +139,8 @@ fn db_migrate_applies_the_generated_migration() {
         .success();
 }
 
-// `persistence::cli` drops the spawned task's result, so a missing Toasty.toml exits 0.
+// A missing Toasty.toml must fail the command, not exit 0.
 #[test]
-#[ignore = "known bug: persistence::cli swallows the inner task error"]
 fn db_commands_fail_without_a_toasty_config() {
     let dir = TempDir::new().unwrap();
 

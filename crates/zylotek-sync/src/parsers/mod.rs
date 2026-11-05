@@ -380,17 +380,15 @@ pub(crate) mod tests {
         assert!(parse("<html></html>").is_err());
     }
 
-    // Characterization: `main` is the first <img> in the container, so a page lacking a
-    // dedicated main image silently reuses the next one (here the tree photo).
     #[test]
-    fn the_main_image_is_simply_the_first_image_on_the_page() {
-        let wood = parse(&mutated(
+    fn a_page_without_a_main_image_is_rejected_not_given_the_tree_photo() {
+        let error = parse(&mutated(
             r#"<img src="/images/madeiras/astronium-main.jpg" alt="">"#,
             "",
         ))
-        .unwrap();
+        .unwrap_err();
 
-        assert_eq!(wood.details.images.main, wood.details.images.tree);
+        assert!(error.to_string().contains("image url not found"), "{error}");
     }
 
     #[test]
@@ -400,6 +398,20 @@ pub(crate) mod tests {
         let error = parse(&html).unwrap_err();
 
         assert!(error.to_string().contains("image url not found"), "{error}");
+    }
+
+    #[test]
+    fn an_image_without_a_src_is_rejected_not_a_panic() {
+        let error = parse(&mutated(
+            r#"<img src="/images/madeiras/astronium-main.jpg" alt="">"#,
+            r#"<img alt="">"#,
+        ))
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("the main image has no src"),
+            "{error}"
+        );
     }
 
     fn regex_free_strip_images(html: &str) -> String {

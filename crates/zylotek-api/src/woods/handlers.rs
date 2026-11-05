@@ -8,7 +8,10 @@ use zylotek_application::woods::{
     update_wood::UpdateWoodCommand,
 };
 use zylotek_contracts::woods::{ListWoodsParams, WoodPageResponse, WoodRequest, WoodResponse};
-use zylotek_domain::woods::{entities::WoodId, errors::WoodError};
+use zylotek_domain::{
+    errors::RepositoryError,
+    woods::{entities::WoodId, errors::WoodError},
+};
 
 use crate::{
     auth::WriteAccess,
@@ -108,6 +111,11 @@ impl From<WoodUseCaseError> for ApiError {
             }
             WoodUseCaseError::Domain(_) => ApiError::UnprocessableEntity(error.to_string()),
 
+            WoodUseCaseError::Persistence(RepositoryError::Duplicate) => {
+                ApiError::UnprocessableEntity(
+                    "a wood with this scientific name already exists".into(),
+                )
+            }
             WoodUseCaseError::Persistence(_) | WoodUseCaseError::Event(_) => {
                 ApiError::Internal(anyhow::Error::new(error))
             }
@@ -482,6 +490,10 @@ mod tests {
             (
                 WoodUseCaseError::Persistence(RepositoryError::Database),
                 "Internal",
+            ),
+            (
+                WoodUseCaseError::Persistence(RepositoryError::Duplicate),
+                "UnprocessableEntity",
             ),
             (
                 WoodUseCaseError::Event(EventPublishError::NoSubscribers),

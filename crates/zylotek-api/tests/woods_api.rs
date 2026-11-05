@@ -142,9 +142,7 @@ async fn concurrent_creates_of_one_name_leave_exactly_one_wood() {
     }))
     .await;
 
-    // The losers currently surface as 500: the unique index rejects them as a generic
-    // `RepositoryError::Database`. 422 would be the better answer; either is accepted here
-    // because the property under test is that exactly one wood is stored.
+    // The losers hit the unique index and are answered 422, like a sequential duplicate.
     let created = results
         .iter()
         .filter(|(status, _)| *status == StatusCode::CREATED)
@@ -154,10 +152,7 @@ async fn concurrent_creates_of_one_name_leave_exactly_one_wood() {
         results
             .iter()
             .filter(|(status, _)| *status != StatusCode::CREATED)
-            .all(|(status, _)| matches!(
-                *status,
-                StatusCode::UNPROCESSABLE_ENTITY | StatusCode::INTERNAL_SERVER_ERROR
-            )),
+            .all(|(status, _)| *status == StatusCode::UNPROCESSABLE_ENTITY),
         "{results:?}"
     );
     let (_, page) = send(&app, Method::GET, WOODS, None).await;

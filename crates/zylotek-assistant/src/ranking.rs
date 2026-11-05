@@ -255,6 +255,26 @@ mod tests {
     }
 
     #[test]
+    fn every_property_is_described_with_what_it_measures_and_which_way_is_better() {
+        let described: Vec<String> = Property::ALL
+            .into_iter()
+            .map(|property| describe(property, 1234.5678))
+            .collect();
+
+        assert_eq!(
+            described,
+            [
+                "hardness (Janka) 1235, higher is harder",
+                "bending strength 1235, higher is stronger",
+                "stiffness (modulus of elasticity) 1235, higher is stiffer",
+                "dimensional stability, volumetric shrinkage 1234.6%, lower is more stable",
+                "lightness, density 1234.57 g/cm³, lower is lighter",
+                "workability 1234.57 out of 1, higher is easier",
+            ]
+        );
+    }
+
+    #[test]
     fn harder_wood_ranks_first_when_hardness_is_wanted() {
         let ranker = Ranker::new(vec![
             hardness("Soft", 300.0),

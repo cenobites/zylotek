@@ -42,12 +42,15 @@ pub(crate) fn parse(container: ElementRef<'_>) -> Result<BasicInformation> {
         .map(selectors::text)
         .ok_or_else(|| anyhow!("species name not found"))?;
 
-    let image_url_selector = selectors::query("img")?;
+    // Gallery photos sit inside a link; only the page's own picture is the main image.
+    let image_url_selector = selectors::query("*:not(a) > img")?;
     let image_url = container
         .select(&image_url_selector)
         .next()
-        .ok_or_else(|| anyhow!("image url not found"))
-        .map(|img| img.attr("src").unwrap().to_string())?;
+        .ok_or_else(|| anyhow!("image url not found"))?
+        .attr("src")
+        .ok_or_else(|| anyhow!("the main image has no src"))?
+        .to_string();
 
     let p_selector = selectors::query("p")?;
     let span_selector = selectors::query("span")?;

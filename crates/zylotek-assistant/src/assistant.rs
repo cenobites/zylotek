@@ -102,7 +102,9 @@ impl Assistant {
         } else {
             self.language_of(question).await
         };
-        if let Some(language) = language.as_deref().filter(|name| !is_english(name)) {
+        if let Some(language) = language.as_deref().filter(|name| !is_english(name))
+            && !requirements.summary.is_empty()
+        {
             requirements.summary = self
                 .translate(question, &requirements.summary, language)
                 .await;
@@ -158,9 +160,6 @@ impl Assistant {
     /// project survive: translated from English alone, a "bancada" came back as a "banqueta".
     /// A failure keeps the summary as it was: it is a courtesy, like the explanation.
     async fn translate(&self, question: &str, summary: &str, language: &str) -> String {
-        if summary.is_empty() {
-            return String::new();
-        }
         let messages = [
             Message::system(format!(
                 "You translate one sentence into {language}. Use the words the question uses for \

@@ -103,7 +103,10 @@ fn parse_table_equipment_finishing(container: ElementRef<'_>) -> Result<Equipmen
     ];
 
     let mut table_rows = HashMap::new();
-    let first_table = container.select(&table_selector).next().unwrap();
+    let first_table = container
+        .select(&table_selector)
+        .next()
+        .ok_or_else(|| anyhow!("workability - equipment finishing table missing"))?;
     for row_element in first_table.select(&rows_selector) {
         let mut cell_elements = row_element.select(&td_selector);
         if let Some(cell_element) = cell_elements.next() {
@@ -167,12 +170,14 @@ fn parse_table_type_of_action(container: ElementRef<'_>) -> Result<SurfaceFinish
         .get(1)
         .ok_or_else(|| anyhow!("workability - type of action surface finishing row missing"))?;
 
+    let cell = |column: usize| column_of(surface_finishing_row, column, "type of action");
+
     Ok(SurfaceFinishing {
-        planer: parse_workability_rating(&surface_finishing_row[1])?,
-        sandpaper: parse_workability_rating(&surface_finishing_row[2])?,
-        vise: parse_workability_rating(&surface_finishing_row[3])?,
-        drill: parse_workability_rating(&surface_finishing_row[4])?,
-        nail_crack: parse_nail_crack(&surface_finishing_row[5])?,
+        planer: parse_workability_rating(cell(1)?)?,
+        sandpaper: parse_workability_rating(cell(2)?)?,
+        vise: parse_workability_rating(cell(3)?)?,
+        drill: parse_workability_rating(cell(4)?)?,
+        nail_crack: parse_nail_crack(cell(5)?)?,
     })
 }
 
@@ -185,10 +190,19 @@ fn parse_table_treatability_of_wood(container: ElementRef<'_>) -> Result<Treatab
         .get(1)
         .ok_or_else(|| anyhow!("workability - treatability of wood row missing"))?;
 
+    let cell = |column: usize| column_of(treatability_of_wood_row, column, "treatability of wood");
+
     Ok(Treatabilities {
-        heartwood: parse_treatability(&treatability_of_wood_row[0])?,
-        sapwood: parse_treatability(&treatability_of_wood_row[1])?,
+        heartwood: parse_treatability(cell(0)?)?,
+        sapwood: parse_treatability(cell(1)?)?,
     })
+}
+
+/// A cell of a table row, or an error naming the table when the page's row is too short.
+fn column_of<'a>(row: &'a [String], column: usize, table: &str) -> Result<&'a str> {
+    row.get(column)
+        .map(String::as_str)
+        .ok_or_else(|| anyhow!("workability - {table} row has no column {column}"))
 }
 
 mod html {
@@ -208,7 +222,53 @@ mod html {
 
 #[cfg(test)]
 mod tests {
+    use scraper::Html;
+
     use super::*;
+
+    fn section(document: &Html) -> ElementRef<'_> {
+        document
+            .select(&selectors::query("div").unwrap())
+            .next()
+            .unwrap()
+    }
+
+    #[test]
+    fn a_section_without_a_table_is_an_error_not_a_panic() {
+        let document = Html::parse_fragment("<div><p>nada</p></div>");
+
+        let error = parse(section(&document)).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "workability - equipment finishing table missing"
+        );
+    }
+
+    #[test]
+    fn short_rows_are_errors_not_panics() {
+        let type_of_action = Html::parse_fragment(&format!(
+            "<div><h3>{}</h3><table><tr><th>x</th></tr><tr><td>Resultado</td></tr></table></div>",
+            html::TYPE_OF_ACTION_TABLE_HEADING
+        ));
+        let treatability = Html::parse_fragment(&format!(
+            "<div><h3>{}</h3><table><tr><th>x</th></tr><tr><td>Fácil</td></tr></table></div>",
+            html::TREATABILITY_OF_WOOD_TABLE_HEADING
+        ));
+
+        let short_action = parse_table_type_of_action(section(&type_of_action)).unwrap_err();
+        let short_treatability =
+            parse_table_treatability_of_wood(section(&treatability)).unwrap_err();
+
+        assert_eq!(
+            short_action.to_string(),
+            "workability - type of action row has no column 1"
+        );
+        assert_eq!(
+            short_treatability.to_string(),
+            "workability - treatability of wood row has no column 1"
+        );
+    }
 
     #[test]
     fn ratings_map_from_portuguese() {

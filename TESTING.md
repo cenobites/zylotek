@@ -98,21 +98,20 @@ git-ignored.
 
 ## Known bugs
 
-Found while writing these tests. Each open one has an `#[ignore]`d test
+Found while writing these tests. None is open now. An open one gets an `#[ignore]`d test
 (`make test-known-bugs` runs them, and they fail until the bug is fixed).
 
-1. **The scraper panics on malformed pages.** `parse_wood` unwraps or indexes page content in
-   `workabilities.rs` (lines 106, 171, 190) and `selectors.rs` (111): a page with no
-   `<table>`, a heading without its table, or a short row aborts the task. Found by
-   fuzzing; see `crates/zylotek-sync/tests/malformed_pages.rs`. A sync run survives it now
-   (the panic becomes a `ScrapeFailure` naming the page), but that wood gets no web data.
-2. **`persistence::cli` swallows errors.** It discards the spawned task's `Result`, so
-   `db setup` / `db migrate` exit 0 when `Toasty.toml` is missing or a migration fails.
+1. ~~**The scraper panics on malformed pages.**~~ Fixed: a page with no `<table>`, a heading
+   without its table, a short row or an `<img>` without `src` is now an error naming what is
+   missing, never a panic (`crates/zylotek-sync/tests/malformed_pages.rs`, plus unit tests next
+   to each parser). Found by fuzzing; the crashing page is now a seed in
+   `fuzz/seeds/parse_wood/`.
+2. ~~**`persistence::cli` swallows errors.**~~ Fixed: it returns the spawned task's `Result`, so
+   `db setup` / `db migrate` fail when `Toasty.toml` is missing or a migration fails.
 3. ~~`build_db` can't reopen a database.~~ Fixed: it now pushes the schema only when the
    tables are missing (`tests/file_database.rs`).
-4. **Duplicate-name races return 500.** Two concurrent creates of one scientific name: the
-   loser hits the unique index and gets `RepositoryError::Database` → 500. The unused
-   `RepositoryError::Duplicate` looks intended for this. Exactly one wood is stored.
-5. **The main image can be wrong.** The parser takes the first `<img>` in the page as the
-   main image, so a page without one silently reuses the tree photo. Pinned by
-   `the_main_image_is_simply_the_first_image_on_the_page` as a characterization test.
+4. ~~**Duplicate-name races return 500.**~~ Fixed: a create or update that loses the race for a
+   scientific name is `RepositoryError::Duplicate`, answered with 422 like the checked case.
+5. ~~**The main image can be wrong.**~~ Fixed: the main image is the page's own picture (not a
+   gallery photo wrapped in a link), and a page without one is an error instead of silently
+   reusing the tree photo.

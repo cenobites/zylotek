@@ -206,6 +206,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_ask_saved_after_it_failed_keeps_its_reason() {
+        let repository = repository().await;
+        let mut ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1)).0;
+        ask.fail(FailureReason::new("the model is down"), Timestamp(2))
+            .unwrap();
+
+        let saved = repository.save(&ask).await.unwrap();
+
+        assert_eq!(saved.state(), AskState::Failed);
+        assert_eq!(saved.failure().unwrap().as_str(), "the model is down");
+    }
+
+    #[tokio::test]
     async fn saving_the_same_ask_twice_is_a_database_error() {
         let repository = repository().await;
         let ask = domain::Ask::create(Question::new("a table").unwrap(), Timestamp(1)).0;

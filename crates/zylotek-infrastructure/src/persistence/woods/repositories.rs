@@ -15,6 +15,20 @@ impl PostgresWoodRepository {
     }
 }
 
+impl PostgresWoodRepository {
+    async fn is_taken(&self, wood: &domain::Wood) -> bool {
+        self.find_by_scientific_name(wood.scientific_name().as_str())
+            .await
+            .is_ok_and(|found| found.is_some())
+    }
+
+    async fn is_taken_by_other(&self, wood: &domain::Wood) -> bool {
+        self.find_by_scientific_name(wood.scientific_name().as_str())
+            .await
+            .is_ok_and(|found| found.is_some_and(|other| other.id() != wood.id()))
+    }
+}
+
 #[async_trait::async_trait]
 impl WoodRepository for PostgresWoodRepository {
     async fn exists_by_scientific_name(
@@ -115,8 +129,17 @@ impl WoodRepository for PostgresWoodRepository {
             .mechanical_properties(record.mechanical_properties)
             .workabilities(record.workabilities)
             .exec(&mut db)
-            .await
-            .map_err(database_error)?;
+            .await;
+
+        // A failed insert of a name that is now taken lost a race to another create.
+        let model = match model {
+            Ok(model) => model,
+            Err(err) if self.is_taken(wood).await => {
+                tracing::warn!(error = %err, "scientific name taken by a concurrent write");
+                return Err(RepositoryError::Duplicate);
+            }
+            Err(err) => return Err(database_error(err)),
+        };
 
         to_domain(model)
     }
@@ -125,7 +148,7 @@ impl WoodRepository for PostgresWoodRepository {
         let mut db = self.db.clone();
         let record = WoodRecord::from(wood);
 
-        Wood::filter_by_id(record.id)
+        let updated = Wood::filter_by_id(record.id)
             .update()
             .name(record.name)
             .scientific_name(record.scientific_name)
@@ -144,8 +167,16 @@ impl WoodRepository for PostgresWoodRepository {
             .mechanical_properties(record.mechanical_properties)
             .workabilities(record.workabilities)
             .exec(&mut db)
-            .await
-            .map_err(database_error)?;
+            .await;
+
+        match updated {
+            Ok(_) => {}
+            Err(err) if self.is_taken_by_other(wood).await => {
+                tracing::warn!(error = %err, "scientific name taken by a concurrent write");
+                return Err(RepositoryError::Duplicate);
+            }
+            Err(err) => return Err(database_error(err)),
+        }
 
         self.find_by_id(wood.id())
             .await?
@@ -260,7 +291,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn saving_a_duplicate_scientific_name_violates_the_unique_index() {
+    async fn saving_a_duplicate_scientific_name_is_reported_as_a_duplicate() {
         let repository = repository().await;
         repository
             .save(&wood("Aroeira", "Myracrodruon urundeuva"))
@@ -272,8 +303,46 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(error, RepositoryError::Database));
+        assert!(matches!(error, RepositoryError::Duplicate));
         assert_eq!(repository.count().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_failed_save_that_is_not_a_taken_name_is_a_database_error() {
+        let repository = repository().await;
+        let original = wood("Aroeira", "Myracrodruon urundeuva");
+        repository.save(&original).await.unwrap();
+        let same_id = DomainWood::restore(
+            original.id(),
+            original.name().clone(),
+            ScientificName::new("Cedrela fissilis").unwrap(),
+            original.details().clone(),
+        );
+
+        let error = repository.save(&same_id).await.unwrap_err();
+
+        assert!(matches!(error, RepositoryError::Database));
+    }
+
+    #[tokio::test]
+    async fn renaming_a_wood_to_a_taken_scientific_name_is_a_duplicate() {
+        let repository = repository().await;
+        repository
+            .save(&wood("Aroeira", "Myracrodruon urundeuva"))
+            .await
+            .unwrap();
+        let other = wood("Cedro", "Cedrela fissilis");
+        repository.save(&other).await.unwrap();
+        let renamed = DomainWood::restore(
+            other.id(),
+            other.name().clone(),
+            ScientificName::new("Myracrodruon urundeuva").unwrap(),
+            other.details().clone(),
+        );
+
+        let error = repository.update(&renamed).await.unwrap_err();
+
+        assert!(matches!(error, RepositoryError::Duplicate));
     }
 
     #[tokio::test]
