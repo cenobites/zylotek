@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ t.compare_title }}{% endblock %}
 {% block content %}
-<p class="mt-2 mb-0 text-sm"><a class="-ml-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-muted no-underline transition hover:bg-subtle hover:text-fg" href="/woods"><svg class="icon"><use href="#i-plus"/></svg>{{ t.compare_add }}</a></p>
+<p class="mt-2 mb-0 text-sm"><a class="-ml-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-muted no-underline transition hover:bg-subtle hover:text-fg" href="/woods" data-compare-add><svg class="icon"><use href="#i-plus"/></svg>{{ t.compare_add }}</a></p>
 <h1 class="flex items-center gap-3"><svg class="icon size-8 text-accent"><use href="#i-columns"/></svg>{{ t.compare_title }}</h1>
 <p class="mt-0 inline-flex items-center gap-2 text-sm text-muted"><span class="inline-block size-3 rounded bg-accent/20 ring-1 ring-accent/40"></span>{{ t.compare_best }}</p>
 <div class="mt-4 overflow-x-auto"><table class="compare data-table">
-<thead><tr><th class="w-44 bg-card!"></th>{% for col in columns %}<th class="min-w-44 bg-card! align-bottom">
+<thead><tr><th class="w-44 bg-card!"></th>{% for col in columns %}<th class="min-w-44 bg-card! align-bottom" data-compare-wood="{{ col.item.id }}" data-name="{{ col.item.name }}">
 <a class="group block text-fg no-underline" href="/woods/{{ col.item.id }}">{% if let Some(image) = col.item.image %}<img class="mb-2 block aspect-[4/3] w-full max-w-48 rounded-xl object-cover" src="{{ image }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="grain mb-2 block aspect-[4/3] w-full max-w-48 rounded-xl" style="{{ col.item.grain }}"></span>{% endif %}<span class="font-serif text-base group-hover:text-accent">{{ col.item.name }}</span></a><em class="text-xs font-normal text-muted">{{ col.item.scientific_name }}</em>
 <p class="my-1.5 font-normal">{% for tag in col.item.tags %}<a class="tag border-l-tag-{{ tag.kind }}" data-tag="{{ tag.kind }}" href="{{ tag.href }}">{{ tag.label }}</a>{% endfor %}</p>
 {% if let Some(href) = col.remove %}<a class="inline-flex items-center gap-1 text-xs font-normal text-muted no-underline hover:text-danger" href="{{ href }}">✕ {{ t.compare_remove }}</a>{% endif %}

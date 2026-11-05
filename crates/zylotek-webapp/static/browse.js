@@ -7,6 +7,15 @@
 
   const KEY = "zylotek.compare.v1";
   const MAX = 4;
+  // From a comparison, "add another wood" carries the woods already compared into the tray.
+  document.querySelector("[data-compare-add]")?.addEventListener("click", () => {
+    const woods = [...document.querySelectorAll("[data-compare-wood]")].map((th) => ({ id: th.dataset.compareWood, name: th.dataset.name }));
+    try {
+      sessionStorage.setItem(KEY, JSON.stringify(woods.slice(0, MAX)));
+    } catch {
+      // Without storage the browse page simply starts empty.
+    }
+  });
   const tray = document.querySelector("[data-compare-tray]");
   const form = document.getElementById("filters");
   if (!tray || !form) return;
