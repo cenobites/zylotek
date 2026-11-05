@@ -95,3 +95,45 @@ opt-level = 3
 
 [profile.dev.package.blake2]
 opt-level = 3
+
+# Default release profile — production-ready optimizations
+[profile.release]
+# Maximum optimization level for performance
+opt-level = 3
+# Enable Link-Time Optimization for smaller binary and better inlining
+lto = "fat"
+# Single codegen unit for maximum optimization (slower build, faster binary)
+codegen-units = 1
+# Strip symbols to reduce binary size
+strip = "symbols"
+# Abort on panic (no unwinding overhead, smaller binary)
+panic = "abort"
+# Enable debug assertions in release for extra safety (can disable if needed)
+debug-assertions = false
+# Overflow checks disabled for performance (enable if paranoid)
+overflow-checks = false
+
+# Production profile — maximum performance and smallest binary
+[profile.production]
+inherits = "release"
+# Fat LTO for best cross-crate optimization
+lto = "fat"
+# Single codegen unit
+codegen-units = 1
+# Strip all symbols
+strip = "symbols"
+# Abort on panic
+panic = "abort"
+# Disable debug info
+debug = false
+# Enable frame pointers for production profiling with perf
+# Comment out if binary size is critical
+# frame-pointer = "always"
+
+# Release with debug info — for profiling in production-like conditions
+[profile.release-with-debug]
+inherits = "release"
+# Keep debug info for profiling/debugging
+debug = true
+# Keep symbols for symbolication
+strip = "none"

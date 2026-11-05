@@ -137,7 +137,19 @@ fuzz:
 
 # Development build (fast compile, debug symbols)
 build:
-	cargo build -p zylotek-cli
+	cargo build -p zylotek-cli -p zylotek-api -p zylotek-assistant -p zylotek-webapp
+
+# Release build (optimized, no debug symbols)
+build-release:
+	cargo build -p zylotek-cli -p zylotek-api -p zylotek-assistant -p zylotek-webapp --release
+
+# Production build (maximum optimization, smallest binary)
+build-production:
+	RUSTFLAGS="-C target-cpu=native" cargo build -p zylotek-cli -p zylotek-api -p zylotek-assistant -p zylotek-webapp --profile production
+
+# Build with debug info for profiling
+build-profile:
+	cargo build -p zylotek-cli -p zylotek-api -p zylotek-assistant -p zylotek-webapp --profile release-with-debug
 
 # =============================================================================
 # Help

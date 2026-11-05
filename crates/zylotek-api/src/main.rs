@@ -55,6 +55,7 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    let listen = file.api.listen;
     let database_url = args
         .database_url
         .or(file.database.url)
@@ -72,7 +73,7 @@ async fn main() -> ExitCode {
         &oauth_issuer,
     );
     let result = match auth {
-        Ok(auth) => serve(&database_url, auth)
+        Ok(auth) => serve(listen, &database_url, auth)
             .await
             .map_err(|error| error.to_string()),
         Err(error) => Err(error.to_string()),

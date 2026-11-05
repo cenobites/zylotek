@@ -1,7 +1,7 @@
 //! Process entry point: binds the fixed port, installs logging and waits for a signal.
 //! Covered by the binary tests in `tests/binary.rs` rather than unit tests.
 
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use tokio::{net::TcpListener, signal};
 use zylotek_infrastructure::persistence::{
@@ -10,7 +10,7 @@ use zylotek_infrastructure::persistence::{
 
 use crate::{auth::Auth, build_state, errors::ApiError, router::router};
 
-async fn run(database_url: &str, auth: Auth) -> anyhow::Result<()> {
+async fn run(listen: SocketAddr, database_url: &str, auth: Auth) -> anyhow::Result<()> {
     let db = build_db(database_url).await?;
     if !auth.is_enabled() {
         log::warn!(
@@ -25,7 +25,8 @@ async fn run(database_url: &str, auth: Auth) -> anyhow::Result<()> {
     );
 
     let app = router(state);
-    let listener = TcpListener::bind("0.0.0.0:8080").await?;
+    let listener = TcpListener::bind(listen).await?;
+    tracing::info!("api listening on http://{}", listener.local_addr()?);
 
     print_banner();
 
@@ -37,8 +38,10 @@ async fn run(database_url: &str, auth: Auth) -> anyhow::Result<()> {
 }
 
 /// Serves the API on port 8080 until a termination signal arrives.
-pub async fn serve(database_url: &str, auth: Auth) -> Result<(), ApiError> {
-    run(database_url, auth).await.map_err(ApiError::Internal)
+pub async fn serve(listen: SocketAddr, database_url: &str, auth: Auth) -> Result<(), ApiError> {
+    run(listen, database_url, auth)
+        .await
+        .map_err(ApiError::Internal)
 }
 
 fn print_banner() {

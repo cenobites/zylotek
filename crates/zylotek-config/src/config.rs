@@ -84,12 +84,15 @@ pub struct OAuthConfig {
 pub struct ApiConfig {
     /// Base URL clients (the assistant and the web app) reach the API at.
     pub url: String,
+    /// Address the API listens on.
+    pub listen: SocketAddr,
 }
 
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             url: "http://localhost:8080".to_owned(),
+            listen: SocketAddr::from(([127, 0, 0, 1], 8080)),
         }
     }
 }
