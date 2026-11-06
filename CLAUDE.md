@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Zylotek is a Rust (edition 2024) Cargo workspace for a Brazilian wood-species database. Data comes from the LPF/Serviço Florestal Brasileiro open-data CSV, completed with what the CSV lacks from the site (https://lpf.florestal.gov.br/pt-br/madeiras-brasileiras) by `zylotek-sync`; the CSV wins where both have a value. Reference material: `docs/*.pdf` (database metadata) and `toasty/fixtures/*.csv` (open data export). The root `src/main.rs` is a placeholder "Hello, world" stub.
+Zylotek is a Rust (edition 2024) Cargo workspace for a Brazilian wood-species database. Data comes from the LPF/Serviço Florestal Brasileiro open-data CSV, completed with what the CSV lacks from the site (https://lpf.florestal.gov.br/pt-br/madeiras-brasileiras) by `zylotek-sync`; the CSV wins where both have a value. Reference material: `docs/*.pdf` (database metadata) and `toasty/fixtures/*.csv` (open data export). The root `src/main.rs` is a placeholder "Hello, world" stub. Deployed and rolled out at https://zylotek.cenobit.es/.
 
 ## Commands
 
@@ -66,7 +66,7 @@ Dependencies are declared once in the root `[workspace.dependencies]`; crates re
 - Keep process entry points (`zylotek-api/src/server.rs`, `persistence/migrations.rs`) free of
   logic: the unit coverage gate excludes them by filename.
 
-- `sync` and `zylotek-api` share the database from `--database-url` / `ZYLOTEK_DATABASE_URL` (default `sqlite:zylotek.db`, git-ignored). The `db` migration commands still use an in-memory database.
+- `sync`, `db` and `zylotek-api` share the database from `--database-url` / `ZYLOTEK_DATABASE_URL` (default `sqlite:zylotek.db`, git-ignored). The `db` commands connect without `build_db`'s schema push, so `db migrate` can create the tables itself.
 - The CSV has one row per test lot, not per species (269 rows, 225 species), and its units are SI (the MOE columns are labelled MPa but hold GPa). `open_data.rs` documents both; first lot wins on import.
 - The SQLite-backed repository is named `PostgresWoodRepository`.
 - Toasty migrations (`toasty/migrations`, `snapshots`, `history.toml`) are generated; use the CLI rather than editing them by hand.

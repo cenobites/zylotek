@@ -70,6 +70,7 @@ mod tests {
         auth::{AuthCommand, ClientCommand},
         sync::DEFAULT_FILE,
     };
+    use zylotek_infrastructure::persistence::DEFAULT_DATABASE_URL;
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from(std::iter::once("zylotek").chain(args.iter().copied()))
@@ -81,6 +82,12 @@ mod tests {
             file: file.into(),
             listing_url: listing_url.map(str::to_owned),
             offline,
+        })
+    }
+
+    fn db_setup(database_url: &str) -> Commands {
+        Commands::Db(DbCommand::Setup {
+            database_url: database_url.into(),
         })
     }
 
@@ -97,8 +104,17 @@ mod tests {
     #[test]
     fn parses_every_subcommand() {
         let cases = [
-            (&["db", "setup"][..], Commands::Db(DbCommand::Setup)),
-            (&["db", "migrate"], Commands::Db(DbCommand::Migrate)),
+            (&["db", "setup"][..], db_setup(DEFAULT_DATABASE_URL)),
+            (
+                &["db", "migrate"],
+                Commands::Db(DbCommand::Migrate {
+                    database_url: DEFAULT_DATABASE_URL.into(),
+                }),
+            ),
+            (
+                &["db", "setup", "--database-url", "sqlite:other.db"],
+                db_setup("sqlite:other.db"),
+            ),
             (&["sync", "run"], sync(DEFAULT_FILE, None, false)),
         ];
 

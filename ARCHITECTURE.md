@@ -310,8 +310,9 @@ returns an error to the caller even though the change was stored.
 **Persistence and migrations.** `build_db` pushes the schema only when the tables are
 missing, so it can reopen an existing database file. The database defaults to
 `sqlite:zylotek.db` and is set with `--database-url` / `ZYLOTEK_DATABASE_URL`. The schema is
-still created from the models, not by applying the generated migrations (the `db` commands
-use a throwaway in-memory database), so migrations are not yet meaningful at runtime. Uniqueness of `scientific_name` is checked
+still created from the models by `sync` and the API; `db migrate` applies the generated
+migrations to the same `--database-url` (it connects without pushing the schema), so run it
+on a fresh database before the others touch it. Uniqueness of `scientific_name` is checked
 by the domain service and backed by a unique index. The SQLite repository is still named
 `PostgresWoodRepository`.
 

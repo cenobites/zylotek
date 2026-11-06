@@ -14,10 +14,7 @@ pub const DEFAULT_DATABASE_URL: &str = "sqlite:zylotek.db";
 /// Connects to `database_uri` and makes sure the tables exist, creating them on a new
 /// database and leaving the data of an existing one untouched.
 pub async fn build_db(database_uri: &str) -> Result<toasty::Db, InfrastructureError> {
-    let db = toasty::Db::builder()
-        .models(toasty::models!(crate::*))
-        .connect(database_uri)
-        .await?;
+    let db = connect(database_uri).await?;
 
     if !has_woods(&db).await {
         db.push_schema().await?;
@@ -32,6 +29,15 @@ pub async fn build_db(database_uri: &str) -> Result<toasty::Db, InfrastructureEr
     }
 
     Ok(db)
+}
+
+/// Connects without touching the schema; the migration commands own it there.
+pub(crate) async fn connect(database_uri: &str) -> Result<toasty::Db, InfrastructureError> {
+    log::info!("Building database connection to {}", database_uri);
+    Ok(toasty::Db::builder()
+        .models(toasty::models!(crate::*))
+        .connect(database_uri)
+        .await?)
 }
 
 /// `push_schema` fails on tables that already exist, so probe for them first.

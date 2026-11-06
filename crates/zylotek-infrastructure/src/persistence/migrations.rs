@@ -2,9 +2,9 @@
 
 use toasty_cli::ToastyCli;
 
-use crate::{errors::InfrastructureError, persistence::build_db};
+use crate::{errors::InfrastructureError, persistence::connect};
 
-pub fn cli(args: Vec<&str>) -> Result<(), InfrastructureError> {
+pub fn cli(database_url: &str, args: Vec<&str>) -> Result<(), InfrastructureError> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -13,10 +13,12 @@ pub fn cli(args: Vec<&str>) -> Result<(), InfrastructureError> {
     let mut args: Vec<String> = args.into_iter().map(|str| str.to_string()).collect();
     let _ = args.insert_mut(0, String::from("--"));
 
+    let database_url = database_url.to_string();
+
     let handle: tokio::task::JoinHandle<Result<_, InfrastructureError>> = rt.spawn(async move {
         let config = toasty_cli::Config::load()?;
 
-        let db = build_db("sqlite::memory:").await?;
+        let db = connect(database_url.as_str()).await?;
 
         let cli = ToastyCli::with_config(db, config);
         cli.parse_from(args).await?;
@@ -43,12 +45,12 @@ mod tests {
                 .exists()
         );
 
-        let _ = cli(vec!["migration", "apply"]);
+        let _ = cli("sqlite::memory:", vec!["migration", "apply"]);
     }
 
     #[test]
     fn cli_reports_a_missing_toasty_config() {
-        let error = cli(vec!["migration", "apply"]).unwrap_err();
+        let error = cli("sqlite::memory:", vec!["migration", "apply"]).unwrap_err();
 
         assert!(matches!(error, InfrastructureError::Database(_)));
     }

@@ -5,6 +5,8 @@ A database of Brazilian wood species. Zylotek scrapes the
 catalogue (basic information, physical and mechanical properties, workability) and serves
 wood records over an HTTP CRUD API.
 
+> **Live:** deployed and rolled out at <https://zylotek.cenobit.es/>.
+
 > **Status: early development.** Woods are loaded from the open-data CSV (or scraped from the
 > site) into a SQLite database and served over the API. See
 > [Current limitations](#current-limitations).
@@ -27,7 +29,7 @@ cargo run -p zylotek-cli -- sync run --offline             # the CSV alone, with
 cargo run -p zylotek-cli -- db setup
 cargo run -p zylotek-cli -- db migrate      # or: make migrate
 
-# Run the HTTP API on 0.0.0.0:8080 (its own binary, zylotek-api)
+# Run the HTTP API on 127.0.0.1:8080 (--listen / ZYLOTEK_API_LISTEN to change) (its own binary, zylotek-api)
 cargo run -p zylotek-api
 
 # Git-style: any other name runs the `zylotek-<name>` executable, next to the CLI or on PATH
@@ -37,7 +39,7 @@ cargo build --workspace
 ./target/debug/zylotek-cli assistant --model-url http://gpu-box:11434
 ```
 
-`sync` and `zylotek-api` share one database: `sqlite:zylotek.db` in the working directory unless you
+`sync`, `db` and `zylotek-api` share one database: `sqlite:zylotek.db` in the working directory unless you
 pass `--database-url <url>` or set `ZYLOTEK_DATABASE_URL` (`sqlite::memory:` for a throwaway
 one). Run `sync run` first and `zylotek-api` then serves what was stored. Syncing is an upsert
 keyed on the scientific name: a wood that is not stored is created, one that is gets
