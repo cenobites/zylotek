@@ -3,6 +3,7 @@ name = "zylotek"
 version = "0.1.0"
 edition = "2024"
 license = "BSD-3-Clause"
+rust-version = "1.99.0"
 
 [dependencies]
 
@@ -88,6 +89,16 @@ predicates = "3.1.4"
 proptest = "1.12.0"
 tempfile = "3.27.0"
 wiremock = "0.6.5"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"         # Prefer ? or expect("reason")
+dbg_macro = "deny"           # No dbg!() in committed code
+todo = "warn"                # Track incomplete implementations
+large_enum_variant = "warn"  # Catch accidental size bloat
+
+[workspace.lints.rust]
+unsafe_code = "deny"         # Enforce zero-unsafe policy
+# missing_docs = "warn"        # Encourage documentation
 
 # Password hashing is deliberately slow; unoptimized it makes every test that touches a client
 # secret take seconds, so build the hash and its digest at full speed even in dev and test.

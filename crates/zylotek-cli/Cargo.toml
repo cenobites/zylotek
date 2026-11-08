@@ -24,3 +24,6 @@ serde_json = { workspace = true }
 predicates = { workspace = true }
 tempfile = { workspace = true }
 wiremock = { workspace = true }
+
+[lints]
+workspace = true

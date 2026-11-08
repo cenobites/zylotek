@@ -11,7 +11,7 @@
 setup: prek-install
 	cargo install --locked prek sccache cargo-llvm-cov cargo-fuzz cargo-insta \
 	cargo-audit cargo-deny cargo-vet cargo-outdated cargo-semver-checks mprocs \
-	watchexec-cli cargo-bloat cargo-udeps
+	watchexec-cli cargo-bloat cargo-udeps cargo-nextest cargo-msrv
 	rustup toolchain install nightly --profile minimal  # cargo-fuzz needs it
 
 # =============================================================================
@@ -74,7 +74,7 @@ INTEGRATION_IGNORE := $(COMMON_IGNORE)
 
 # Every test: unit, integration and doc tests
 test:
-	cargo test --workspace
+	cargo nextest run --workspace
 
 # Unit tests: fast, no network, no ports
 test-unit:

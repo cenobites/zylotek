@@ -47,6 +47,9 @@ insta = { workspace = true }
 proptest = { workspace = true }
 reqwest = { workspace = true }
 
+[lints]
+workspace = true
+
 [[bench]]
 name = "http"
 harness = false

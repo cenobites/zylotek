@@ -39,6 +39,9 @@ predicates = { workspace = true }
 tower = { workspace = true }
 wiremock = { workspace = true }
 
+[lints]
+workspace = true
+
 [[bench]]
 name = "render"
 harness = false

@@ -1,0 +1,9 @@
+[profile.default]
+retries = 0
+slow-timeout = { period = "60s", terminate-after = 3 }
+fail-fast = true
+
+[profile.ci]
+retries = 2
+fail-fast = false
+junit = { path = "test-results.xml" }

@@ -15,3 +15,6 @@ async-trait = { workspace = true }
 zylotek-domain = { workspace = true, features = ["testing"] }
 zylotek-infrastructure = { workspace = true, features = ["testing"] }
 tokio = { workspace = true }
+
+[lints]
+workspace = true
