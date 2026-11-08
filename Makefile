@@ -11,7 +11,7 @@
 setup: prek-install
 	cargo install --locked prek sccache cargo-llvm-cov cargo-fuzz cargo-insta \
 	cargo-audit cargo-deny cargo-vet cargo-outdated cargo-semver-checks mprocs \
-	watchexec-cli
+	watchexec-cli cargo-bloat cargo-udeps
 	rustup toolchain install nightly --profile minimal  # cargo-fuzz needs it
 
 # =============================================================================
